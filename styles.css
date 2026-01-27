@@ -45,12 +45,12 @@
 
 .epub-tap-zone--prev {
   left: 0;
-  width: 30%;
+  width: 50%;
 }
 
 .epub-tap-zone--next {
   right: 0;
-  width: 30%;
+  width: 50%;
 }
 
 .epub-highlight-preview {
