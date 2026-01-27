@@ -521,29 +521,33 @@ export const EpubReader: React.FC<Props> = ({
 
   const readerStyles = useMemo<IReactReaderStyle>(() => {
     const base = isDarkMode ? darkReaderTheme : lightReaderTheme;
-    if (!isMobile) return base;
+
+    // Always hide built-in arrows so only our tap zones control paging.
+    const baseWithHiddenArrows: IReactReaderStyle = {
+      ...base,
+      arrow: {
+        ...base.arrow,
+        display: "none",
+      },
+    };
+
+    if (!isMobile) return baseWithHiddenArrows;
 
     const next: IReactReaderStyle = {
-      ...base,
+      ...baseWithHiddenArrows,
       reader: {
-        ...base.reader,
+        ...baseWithHiddenArrows.reader,
         top: "8px",
         left: "8px",
         right: "8px",
         bottom: "8px",
       },
       readerArea: {
-        ...base.readerArea,
+        ...baseWithHiddenArrows.readerArea,
         padding: "0 2px",
       },
-      arrow: {
-        ...base.arrow,
-        fontSize: "48px",
-        padding: "0 6px",
-        display: "none",
-      },
       tocButton: {
-        ...base.tocButton,
+        ...baseWithHiddenArrows.tocButton,
         display: "none",
         top: "8px",
         right: "8px",
@@ -556,14 +560,14 @@ export const EpubReader: React.FC<Props> = ({
         opacity: 0.85,
       },
       tocButtonBar: {
-        ...base.tocButtonBar,
+        ...baseWithHiddenArrows.tocButtonBar,
         background: "var(--text-normal)",
       },
       tocButtonBarTop: {
-        ...base.tocButtonBarTop,
+        ...baseWithHiddenArrows.tocButtonBarTop,
       },
       tocButtonBarBottom: {
-        ...base.tocButtonBarBottom,
+        ...baseWithHiddenArrows.tocButtonBarBottom,
       },
     };
     return next;
@@ -612,22 +616,25 @@ export const EpubReader: React.FC<Props> = ({
         overflow: scrolled ? "auto" : "hidden",
       }}
     >
-      {isMobile && !scrolled ? (
-        <div className="epub-tap-zones">
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--prev"
-            aria-label="上一页"
-            onClick={goPrev}
-          />
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--next"
-            aria-label="下一页"
-            onClick={goNext}
-          />
-        </div>
-      ) : null}
+      {isMobile && !scrolled && portalTarget
+        ? createPortal(
+            <div className="epub-tap-zones">
+              <button
+                type="button"
+                className="epub-tap-zone epub-tap-zone--prev"
+                aria-label="上一页"
+                onClick={goPrev}
+              />
+              <button
+                type="button"
+                className="epub-tap-zone epub-tap-zone--next"
+                aria-label="下一页"
+                onClick={goNext}
+              />
+            </div>,
+            portalTarget
+          )
+        : null}
       {/* Floating toolbar */}
       {portalTarget && toolbarNode ? createPortal(toolbarNode, portalTarget) : toolbarNode}
 

@@ -40,6 +40,7 @@
   background: transparent;
   pointer-events: auto;
   display: block;
+  touch-action: manipulation;
 }
 
 .epub-tap-zone--prev {
