@@ -21,36 +21,46 @@
   font-size: 13px;
 }
 
-.epub-tap-zones {
+.epub-mobile-toggle {
   position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-}
-
-.epub-tap-zone {
-  position: absolute;
-  top: 0;
-  bottom: 0;
+  right: 10px;
+  bottom: 16px;
+  z-index: 6;
   border: none;
-  padding: 0;
-  background: transparent;
-  pointer-events: auto;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  width: 36px;
+  height: 36px;
+  line-height: 36px;
+  font-size: 18px;
+  opacity: 0.85;
 }
 
-.epub-tap-zone--prev {
-  left: 0;
-  width: 30%;
+.epub-mobile-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  border: none;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  font-size: 24px;
+  opacity: 0.85;
+  transform: translateY(-50%);
 }
 
-.epub-tap-zone--center {
-  left: 30%;
-  width: 40%;
+.epub-mobile-nav--prev {
+  left: 8px;
 }
 
-.epub-tap-zone--next {
-  right: 0;
-  width: 30%;
+.epub-mobile-nav--next {
+  right: 8px;
 }
 
 .epub-highlight-preview {

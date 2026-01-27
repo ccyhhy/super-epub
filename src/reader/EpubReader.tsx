@@ -577,26 +577,36 @@ export const EpubReader: React.FC<Props> = ({
       }}
     >
       {isMobile && !scrolled ? (
-        <div className="epub-tap-zones">
+        <>
           <button
             type="button"
-            className="epub-tap-zone epub-tap-zone--prev"
-            aria-label="上一页"
-            onClick={goPrev}
-          />
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--center"
+            className="epub-mobile-toggle"
             aria-label="显示/隐藏工具栏"
             onClick={toggleChrome}
-          />
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--next"
-            aria-label="下一页"
-            onClick={goNext}
-          />
-        </div>
+          >
+            ⋯
+          </button>
+          {showChrome ? (
+            <>
+              <button
+                type="button"
+                className="epub-mobile-nav epub-mobile-nav--prev"
+                aria-label="上一页"
+                onClick={goPrev}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="epub-mobile-nav epub-mobile-nav--next"
+                aria-label="下一页"
+                onClick={goNext}
+              >
+                ›
+              </button>
+            </>
+          ) : null}
+        </>
       ) : null}
       {/* Floating toolbar */}
       {portalTarget && toolbarNode ? createPortal(toolbarNode, portalTarget) : toolbarNode}
@@ -606,7 +616,7 @@ export const EpubReader: React.FC<Props> = ({
         showToc={true}
         location={location}
         locationChanged={locationChanged}
-        swipeable={false}
+        swipeable={isMobile}
         url={contents}
         getRendition={(rendition: Rendition) => {
           renditionRef.current = rendition;
