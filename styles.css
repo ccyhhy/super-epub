@@ -24,8 +24,8 @@
 .epub-tap-zones {
   position: absolute;
   inset: 0;
-  z-index: 5;
-  pointer-events: none;
+  z-index: 9999;
+  pointer-events: auto;
 }
 
 .epub-tap-zone {
@@ -36,6 +36,7 @@
   padding: 0;
   background: transparent;
   pointer-events: auto;
+  display: block;
 }
 
 .epub-tap-zone--prev {
