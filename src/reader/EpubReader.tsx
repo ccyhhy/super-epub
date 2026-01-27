@@ -243,6 +243,18 @@ export const EpubReader: React.FC<Props> = ({
     }
   }, []);
 
+  const goNext = useCallback(() => {
+    const r: any = renditionRef.current;
+    r?.next?.();
+    onUserActivity?.();
+  }, [onUserActivity]);
+
+  const goPrev = useCallback(() => {
+    const r: any = renditionRef.current;
+    r?.prev?.();
+    onUserActivity?.();
+  }, [onUserActivity]);
+
   const attachTapPaging = useCallback(
     (c: Contents) => {
       if (!isMobile || scrolled) return;
@@ -390,18 +402,6 @@ export const EpubReader: React.FC<Props> = ({
       cfiRange,
       text,
     });
-  }, [onUserActivity]);
-
-  const goNext = useCallback(() => {
-    const r: any = renditionRef.current;
-    r?.next?.();
-    onUserActivity?.();
-  }, [onUserActivity]);
-
-  const goPrev = useCallback(() => {
-    const r: any = renditionRef.current;
-    r?.prev?.();
-    onUserActivity?.();
   }, [onUserActivity]);
 
   useEffect(() => {
