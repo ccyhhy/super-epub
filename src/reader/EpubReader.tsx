@@ -76,23 +76,6 @@ export const EpubReader: React.FC<Props> = ({
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const isDarkMode = useObsidianTheme(followObsidianTheme);
   const obsidianTypography = useObsidianTypography(followObsidianFont);
-  const isMobile = useMemo(() => {
-    const appMobile = Boolean((app as any)?.isMobile);
-    if (appMobile) return true;
-    if (typeof document !== "undefined") {
-      const body = document.body;
-      if (body?.classList?.contains("is-mobile")) return true;
-      if (body?.classList?.contains("is-phone")) return true;
-    }
-    if (typeof navigator !== "undefined") {
-      if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
-    }
-    if (typeof window !== "undefined") {
-      if (window.matchMedia?.("(pointer: coarse)").matches && window.innerWidth <= 900) return true;
-    }
-    return false;
-  }, [app]);
-
   // Track backlink highlights we added so we can remove them before re-adding.
   const addedBacklinkCfisRef = useRef<string[]>([]);
 
@@ -243,46 +226,7 @@ export const EpubReader: React.FC<Props> = ({
     }
   }, []);
 
-  const goNext = useCallback(() => {
-    const r: any = renditionRef.current;
-    r?.next?.();
-    onUserActivity?.();
-  }, [onUserActivity]);
-
-  const goPrev = useCallback(() => {
-    const r: any = renditionRef.current;
-    r?.prev?.();
-    onUserActivity?.();
-  }, [onUserActivity]);
-
-  const attachTapPaging = useCallback(
-    (c: Contents) => {
-      if (!isMobile || scrolled) return;
-      const win = c.window;
-      if (!win) return;
-      const doc = win.document;
-      if (!doc) return;
-
-      const handler = (evt: MouseEvent) => {
-        if (evt.defaultPrevented) return;
-        const target = evt.target as HTMLElement | null;
-        if (target && (target.tagName === "A" || target.closest("a"))) return;
-        const width = win.innerWidth || doc.documentElement.clientWidth || 0;
-        if (!width) return;
-        if (evt.clientX < width / 2) {
-          goPrev();
-        } else {
-          goNext();
-        }
-      };
-
-      doc.addEventListener("click", handler);
-      return () => {
-        doc.removeEventListener("click", handler);
-      };
-    },
-    [isMobile, scrolled, goPrev, goNext]
-  );
+  // (mobile tap paging removed)
 
   // Receive jump request: if rendition not ready yet, hold it.
   useEffect(() => {
@@ -404,51 +348,6 @@ export const EpubReader: React.FC<Props> = ({
     });
   }, [onUserActivity]);
 
-  useEffect(() => {
-    if (!isMobile) return;
-    if (scrolled) return;
-    const doc = containerRef.current?.ownerDocument ?? document;
-
-    const isEditableTarget = (target: EventTarget | null) => {
-      const el = target as HTMLElement | null;
-      if (!el) return false;
-      if (el.isContentEditable) return true;
-      const tag = el.tagName?.toLowerCase();
-      return tag === "input" || tag === "textarea" || tag === "select";
-    };
-
-    const handler = (evt: KeyboardEvent) => {
-      if (isEditableTarget(evt.target)) return;
-      const key = evt.key;
-      const code = (evt as any).code;
-      const keyCode = (evt as any).keyCode;
-      const isVolUp =
-        key === "AudioVolumeUp" ||
-        key === "VolumeUp" ||
-        code === "AudioVolumeUp" ||
-        keyCode === 175;
-      const isVolDown =
-        key === "AudioVolumeDown" ||
-        key === "VolumeDown" ||
-        code === "AudioVolumeDown" ||
-        keyCode === 174;
-      if (!isVolUp && !isVolDown) return;
-      evt.preventDefault();
-      evt.stopPropagation();
-      onUserActivity?.();
-      if (isVolUp) {
-        goPrev();
-      } else {
-        goNext();
-      }
-    };
-
-    doc.addEventListener("keydown", handler, true);
-    return () => {
-      doc.removeEventListener("keydown", handler, true);
-    };
-  }, [isMobile, scrolled, goNext, goPrev, onUserActivity]);
-
 
   useEffect(() => {
     if (!rendition) return;
@@ -472,10 +371,6 @@ export const EpubReader: React.FC<Props> = ({
         const body = c.window.document.body;
         body.oncontextmenu = () => false;
         applySelectionStyle(c, selectionColorRef.current);
-        const cleanup = attachTapPaging(c);
-        if (cleanup) {
-          (c as any)._tapPagingCleanup = cleanup;
-        }
       } catch {
         // ignore
       }
@@ -500,17 +395,6 @@ export const EpubReader: React.FC<Props> = ({
       rendition.off("relocated", handleRelocated);
       rendition.off("rendered", handleRendered);
       contentHook?.unregister?.(hook);
-      const contents: any = (rendition as any)?.getContents?.();
-      const list = Array.isArray(contents) ? contents : contents ? [contents] : [];
-      for (const c of list) {
-        try {
-          const cleanup = (c as any)._tapPagingCleanup;
-          if (typeof cleanup === "function") cleanup();
-          delete (c as any)._tapPagingCleanup;
-        } catch {
-          // ignore
-        }
-      }
     };
   }, [
     rendition,
@@ -518,7 +402,6 @@ export const EpubReader: React.FC<Props> = ({
     applyBacklinkHighlights,
     applySelectionStyle,
     onUserActivity,
-    attachTapPaging,
   ]);
 
   useEffect(() => {
@@ -567,68 +450,8 @@ export const EpubReader: React.FC<Props> = ({
   }, [toolbar, file.path, writeClipboard, clearSelection]);
 
   const readerStyles = useMemo<IReactReaderStyle>(() => {
-    const base = isDarkMode ? darkReaderTheme : lightReaderTheme;
-
-    // Always hide built-in arrows so only our tap zones control paging.
-    const baseWithHiddenArrows: IReactReaderStyle = {
-      ...base,
-      arrow: {
-        ...base.arrow,
-        display: "none",
-        visibility: "hidden",
-        pointerEvents: "none",
-      },
-      prev: {
-        ...base.prev,
-        display: "none",
-      },
-      next: {
-        ...base.next,
-        display: "none",
-      },
-    };
-
-    if (!isMobile) return baseWithHiddenArrows;
-
-    const next: IReactReaderStyle = {
-      ...baseWithHiddenArrows,
-      reader: {
-        ...baseWithHiddenArrows.reader,
-        top: "8px",
-        left: "8px",
-        right: "8px",
-        bottom: "8px",
-      },
-      readerArea: {
-        ...baseWithHiddenArrows.readerArea,
-        padding: "0 2px",
-      },
-      tocButton: {
-        ...baseWithHiddenArrows.tocButton,
-        display: "none",
-        top: "8px",
-        right: "8px",
-        left: "auto",
-        width: "36px",
-        height: "36px",
-        borderRadius: "999px",
-        background: "var(--background-primary)",
-        boxShadow: "0 6px 16px rgba(0, 0, 0, 0.2)",
-        opacity: 0.85,
-      },
-      tocButtonBar: {
-        ...baseWithHiddenArrows.tocButtonBar,
-        background: "var(--text-normal)",
-      },
-      tocButtonBarTop: {
-        ...baseWithHiddenArrows.tocButtonBarTop,
-      },
-      tocButtonBarBottom: {
-        ...baseWithHiddenArrows.tocButtonBarBottom,
-      },
-    };
-    return next;
-  }, [isDarkMode, isMobile]);
+    return isDarkMode ? darkReaderTheme : lightReaderTheme;
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (!onRegisterActions) return;
@@ -646,24 +469,7 @@ export const EpubReader: React.FC<Props> = ({
     onRegisterActions({ toggleToc });
   }, [onRegisterActions]);
 
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root) return;
-    const hideArrows = () => {
-      const buttons = Array.from(root.querySelectorAll("button"));
-      for (const btn of buttons) {
-        const text = (btn.textContent ?? "").trim();
-        if (text === "\u2039" || text === "\u203A") {
-          btn.style.display = "none";
-          btn.style.pointerEvents = "none";
-        }
-      }
-    };
-    hideArrows();
-    const observer = new MutationObserver(() => hideArrows());
-    observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, []);
+  // (mobile-only arrow suppression removed)
 
   const toolbarNode = toolbar && toolbar.visible ? (
     <div
