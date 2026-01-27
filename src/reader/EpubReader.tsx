@@ -79,8 +79,18 @@ export const EpubReader: React.FC<Props> = ({
   const isMobile = useMemo(() => {
     const appMobile = Boolean((app as any)?.isMobile);
     if (appMobile) return true;
-    if (typeof navigator === "undefined") return false;
-    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (typeof document !== "undefined") {
+      const body = document.body;
+      if (body?.classList?.contains("is-mobile")) return true;
+      if (body?.classList?.contains("is-phone")) return true;
+    }
+    if (typeof navigator !== "undefined") {
+      if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
+    }
+    if (typeof window !== "undefined") {
+      if (window.matchMedia?.("(pointer: coarse)").matches && window.innerWidth <= 900) return true;
+    }
+    return false;
   }, [app]);
 
   // Track backlink highlights we added so we can remove them before re-adding.
@@ -530,7 +540,7 @@ export const EpubReader: React.FC<Props> = ({
         ...base.arrow,
         fontSize: "48px",
         padding: "0 6px",
-        display: "block",
+        display: "none",
       },
       tocButton: {
         ...base.tocButton,
