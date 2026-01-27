@@ -603,24 +603,20 @@ export const EpubReader: React.FC<Props> = ({
       }}
     >
       {isMobile && !scrolled ? (
-        <>
+        <div className="epub-tap-zones">
           <button
             type="button"
-            className="epub-mobile-nav epub-mobile-nav--prev"
+            className="epub-tap-zone epub-tap-zone--prev"
             aria-label="上一页"
             onClick={goPrev}
-          >
-            ‹
-          </button>
+          />
           <button
             type="button"
-            className="epub-mobile-nav epub-mobile-nav--next"
+            className="epub-tap-zone epub-tap-zone--next"
             aria-label="下一页"
             onClick={goNext}
-          >
-            ›
-          </button>
-        </>
+          />
+        </div>
       ) : null}
       {/* Floating toolbar */}
       {portalTarget && toolbarNode ? createPortal(toolbarNode, portalTarget) : toolbarNode}
