@@ -411,6 +411,7 @@ export const EpubReader: React.FC<Props> = ({
     };
   }, [isMobile, scrolled, goNext, goPrev, onUserActivity]);
 
+
   useEffect(() => {
     if (!rendition) return;
 
@@ -616,7 +617,7 @@ export const EpubReader: React.FC<Props> = ({
         showToc={true}
         location={location}
         locationChanged={locationChanged}
-        swipeable={isMobile}
+        swipeable={false}
         url={contents}
         getRendition={(rendition: Rendition) => {
           renditionRef.current = rendition;
