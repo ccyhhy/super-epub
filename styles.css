@@ -21,38 +21,6 @@
   font-size: 13px;
 }
 
-.epub-tap-zones {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9999;
-  pointer-events: auto;
-}
-
-.epub-tap-zone {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border: none;
-  padding: 0;
-  background: transparent;
-  pointer-events: auto;
-  display: block;
-  touch-action: manipulation;
-}
-
-.epub-tap-zone--prev {
-  left: 0;
-  width: 50%;
-}
-
-.epub-tap-zone--next {
-  right: 0;
-  width: 50%;
-}
-
 .epub-highlight-preview {
   display: flex;
   align-items: center;

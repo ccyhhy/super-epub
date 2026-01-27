@@ -243,6 +243,35 @@ export const EpubReader: React.FC<Props> = ({
     }
   }, []);
 
+  const attachTapPaging = useCallback(
+    (c: Contents) => {
+      if (!isMobile || scrolled) return;
+      const win = c.window;
+      if (!win) return;
+      const doc = win.document;
+      if (!doc) return;
+
+      const handler = (evt: MouseEvent) => {
+        if (evt.defaultPrevented) return;
+        const target = evt.target as HTMLElement | null;
+        if (target && (target.tagName === "A" || target.closest("a"))) return;
+        const width = win.innerWidth || doc.documentElement.clientWidth || 0;
+        if (!width) return;
+        if (evt.clientX < width / 2) {
+          goPrev();
+        } else {
+          goNext();
+        }
+      };
+
+      doc.addEventListener("click", handler);
+      return () => {
+        doc.removeEventListener("click", handler);
+      };
+    },
+    [isMobile, scrolled, goPrev, goNext]
+  );
+
   // Receive jump request: if rendition not ready yet, hold it.
   useEffect(() => {
     if (!jumpCfiRange) return;
@@ -443,6 +472,10 @@ export const EpubReader: React.FC<Props> = ({
         const body = c.window.document.body;
         body.oncontextmenu = () => false;
         applySelectionStyle(c, selectionColorRef.current);
+        const cleanup = attachTapPaging(c);
+        if (cleanup) {
+          (c as any)._tapPagingCleanup = cleanup;
+        }
       } catch {
         // ignore
       }
@@ -467,6 +500,17 @@ export const EpubReader: React.FC<Props> = ({
       rendition.off("relocated", handleRelocated);
       rendition.off("rendered", handleRendered);
       contentHook?.unregister?.(hook);
+      const contents: any = (rendition as any)?.getContents?.();
+      const list = Array.isArray(contents) ? contents : contents ? [contents] : [];
+      for (const c of list) {
+        try {
+          const cleanup = (c as any)._tapPagingCleanup;
+          if (typeof cleanup === "function") cleanup();
+          delete (c as any)._tapPagingCleanup;
+        } catch {
+          // ignore
+        }
+      }
     };
   }, [
     rendition,
@@ -474,6 +518,7 @@ export const EpubReader: React.FC<Props> = ({
     applyBacklinkHighlights,
     applySelectionStyle,
     onUserActivity,
+    attachTapPaging,
   ]);
 
   useEffect(() => {
@@ -647,22 +692,6 @@ export const EpubReader: React.FC<Props> = ({
         overflow: scrolled ? "auto" : "hidden",
       }}
     >
-      {isMobile && !scrolled ? (
-        <div className="epub-tap-zones">
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--prev"
-            aria-label="上一页"
-            onClick={goPrev}
-          />
-          <button
-            type="button"
-            className="epub-tap-zone epub-tap-zone--next"
-            aria-label="下一页"
-            onClick={goNext}
-          />
-        </div>
-      ) : null}
       {/* Floating toolbar */}
       {portalTarget && toolbarNode ? createPortal(toolbarNode, portalTarget) : toolbarNode}
 
