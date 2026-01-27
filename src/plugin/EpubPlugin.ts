@@ -23,8 +23,6 @@ function getHrefFromTarget(target: HTMLElement): string | null {
   return null;
 }
 
-const VAULT_DATA_FILE = "epub-reading.json";
-
 export default class EpubPlugin extends Plugin implements ProgressStore {
   settings: EpubPluginSettings;
   private saveTimer: number | null = null;
@@ -162,24 +160,13 @@ export default class EpubPlugin extends Plugin implements ProgressStore {
 
   // ====== data.json ?????????? ======
   private async loadPluginData(): Promise<void> {
-    const vaultRaw = await this.readVaultData();
-    if (vaultRaw != null) {
-      this.store.load(vaultRaw);
-      return;
-    }
-
     const raw = await this.loadData();
     this.store.load(raw);
-    if (raw) {
-      await this.writeVaultData(this.store.exportData());
-    }
   }
 
   private async savePluginData(): Promise<void> {
     this.store.setSettings(this.settings, false);
-    const data = this.store.exportData();
-    await this.saveData(data);
-    await this.writeVaultData(data);
+    await this.saveData(this.store.exportData());
   }
 
   async loadSettings() {
@@ -192,27 +179,6 @@ export default class EpubPlugin extends Plugin implements ProgressStore {
     await this.savePluginData();
     // 通知所有打开的EpubView重新渲染以应用新设置
     this.notifyViewsToRerender();
-  }
-
-  private async readVaultData(): Promise<unknown | null> {
-    try {
-      const adapter = this.app.vault.adapter;
-      if (!(await adapter.exists(VAULT_DATA_FILE))) return null;
-      const raw = await adapter.read(VAULT_DATA_FILE);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private async writeVaultData(data: unknown): Promise<void> {
-    try {
-      const adapter = this.app.vault.adapter;
-      const payload = JSON.stringify(data, null, "\t");
-      await adapter.write(VAULT_DATA_FILE, payload);
-    } catch {
-      // ignore
-    }
   }
 
   private notifyViewsToRerender(): void {
