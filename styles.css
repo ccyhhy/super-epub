@@ -21,23 +21,6 @@
   font-size: 13px;
 }
 
-.epub-mobile-toggle {
-  position: absolute;
-  right: 10px;
-  bottom: 16px;
-  z-index: 6;
-  border: none;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
-  border-radius: 999px;
-  width: 36px;
-  height: 36px;
-  line-height: 36px;
-  font-size: 18px;
-  opacity: 0.85;
-}
-
 .epub-mobile-nav {
   position: absolute;
   top: 50%;

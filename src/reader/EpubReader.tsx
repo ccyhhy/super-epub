@@ -41,6 +41,7 @@ type Props = {
   onLocationChange: (loc: string | number) => void;
   onOpenNote: (note: TFile) => void;
   onUserActivity: () => void;
+  onRegisterActions?: (actions: { toggleToc: () => void }) => void;
 };
 
 export const EpubReader: React.FC<Props> = ({
@@ -60,6 +61,7 @@ export const EpubReader: React.FC<Props> = ({
   onLocationChange,
   onOpenNote,
   onUserActivity,
+  onRegisterActions,
 }) => {
   const renditionRef = useRef<Rendition | null>(null);
   const pendingJumpRef = useRef<string | null>(null);
@@ -72,7 +74,6 @@ export const EpubReader: React.FC<Props> = ({
   const [location, setLocation] = useState<string | number>(initialLocation);
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-  const [showChrome, setShowChrome] = useState(false);
   const isDarkMode = useObsidianTheme(followObsidianTheme);
   const obsidianTypography = useObsidianTypography(followObsidianFont);
   const isMobile = useMemo(() => {
@@ -362,10 +363,6 @@ export const EpubReader: React.FC<Props> = ({
     onUserActivity?.();
   }, [onUserActivity]);
 
-  const toggleChrome = useCallback(() => {
-    setShowChrome((prev) => !prev);
-  }, []);
-
   useEffect(() => {
     if (!isMobile) return;
     if (scrolled) return;
@@ -516,8 +513,6 @@ export const EpubReader: React.FC<Props> = ({
     const base = isDarkMode ? darkReaderTheme : lightReaderTheme;
     if (!isMobile) return base;
 
-    const hidden: IReactReaderStyle["tocButtonBar"] = { display: "none" };
-    const isChromeVisible = showChrome;
     const next: IReactReaderStyle = {
       ...base,
       reader: {
@@ -535,20 +530,50 @@ export const EpubReader: React.FC<Props> = ({
         ...base.arrow,
         fontSize: "48px",
         padding: "0 6px",
-        display: isChromeVisible ? "block" : "none",
+        display: "block",
       },
       tocButton: {
         ...base.tocButton,
-        display: isChromeVisible ? "block" : "none",
+        display: "none",
+        top: "8px",
+        right: "8px",
+        left: "auto",
+        width: "36px",
+        height: "36px",
+        borderRadius: "999px",
+        background: "var(--background-primary)",
+        boxShadow: "0 6px 16px rgba(0, 0, 0, 0.2)",
+        opacity: 0.85,
       },
-      tocButtonBar: isChromeVisible ? base.tocButtonBar : { ...base.tocButtonBar, ...hidden },
-      tocButtonBarTop: isChromeVisible ? base.tocButtonBarTop : { ...base.tocButtonBarTop, ...hidden },
-      tocButtonBarBottom: isChromeVisible
-        ? base.tocButtonBarBottom
-        : { ...base.tocButtonBarBottom, ...hidden },
+      tocButtonBar: {
+        ...base.tocButtonBar,
+        background: "var(--text-normal)",
+      },
+      tocButtonBarTop: {
+        ...base.tocButtonBarTop,
+      },
+      tocButtonBarBottom: {
+        ...base.tocButtonBarBottom,
+      },
     };
     return next;
-  }, [isDarkMode, isMobile, showChrome]);
+  }, [isDarkMode, isMobile]);
+
+  useEffect(() => {
+    if (!onRegisterActions) return;
+    const toggleToc = () => {
+      const container = containerRef.current;
+      if (!container) return;
+      const buttons = Array.from(container.querySelectorAll("button"));
+      const tocBtn = buttons.find((btn) => {
+        if (btn.textContent && btn.textContent.trim()) return false;
+        const spans = btn.querySelectorAll("span");
+        return spans.length === 2;
+      });
+      tocBtn?.click();
+    };
+    onRegisterActions({ toggleToc });
+  }, [onRegisterActions]);
 
   const toolbarNode = toolbar && toolbar.visible ? (
     <div
@@ -581,32 +606,20 @@ export const EpubReader: React.FC<Props> = ({
         <>
           <button
             type="button"
-            className="epub-mobile-toggle"
-            aria-label="显示/隐藏工具栏"
-            onClick={toggleChrome}
+            className="epub-mobile-nav epub-mobile-nav--prev"
+            aria-label="上一页"
+            onClick={goPrev}
           >
-            ⋯
+            ‹
           </button>
-          {showChrome ? (
-            <>
-              <button
-                type="button"
-                className="epub-mobile-nav epub-mobile-nav--prev"
-                aria-label="上一页"
-                onClick={goPrev}
-              >
-                ‹
-              </button>
-              <button
-                type="button"
-                className="epub-mobile-nav epub-mobile-nav--next"
-                aria-label="下一页"
-                onClick={goNext}
-              >
-                ›
-              </button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            className="epub-mobile-nav epub-mobile-nav--next"
+            aria-label="下一页"
+            onClick={goNext}
+          >
+            ›
+          </button>
         </>
       ) : null}
       {/* Floating toolbar */}

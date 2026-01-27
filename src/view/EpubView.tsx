@@ -39,6 +39,7 @@ export class EpubView extends FileView {
   private backlinkListenerRegistered = false;
   private readonly readingTracker: ReadingTracker;
   private isActiveLeaf = false;
+  private toggleTocAction: (() => void) | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -78,6 +79,14 @@ export class EpubView extends FileView {
           }
           const fileLeaf = this.app.workspace.createLeafBySplit(this.leaf);
           fileLeaf.openFile(file as TFile, { active: true });
+        });
+    });
+    menu.addItem((item) => {
+      item
+        .setTitle("目录")
+        .setIcon("list")
+        .onClick(() => {
+          this.toggleTocAction?.();
         });
     });
     menu.addSeparator();
@@ -207,6 +216,9 @@ Date: ${moment().toLocaleString()}
             }}
             onUserActivity={() => {
               this.readingTracker.recordActivity();
+            }}
+            onRegisterActions={({ toggleToc }) => {
+              this.toggleTocAction = toggleToc;
             }}
           />
       </div>,
