@@ -1,4 +1,4 @@
-import { WorkspaceLeaf, FileView, TFile, Menu, moment } from "obsidian";
+import { WorkspaceLeaf, FileView, TFile, TFolder, Menu, moment } from "obsidian";
 import * as React from "react";
 import * as ReactDOM from "react-dom";
 import type { EpubPluginSettings } from "../plugin/EpubPluginSettings";
@@ -37,6 +37,8 @@ export class EpubView extends FileView {
   private highlightsKey: string | null = null;
   private refreshTimer: number | null = null;
   private backlinkListenerRegistered = false;
+  private readonly backlinkDebounceMs = 4000;
+  private backlinksDirty = false;
   private readonly readingTracker: ReadingTracker;
   private isActiveLeaf = false;
   private toggleTocAction: (() => void) | null = null;
@@ -75,6 +77,13 @@ export class EpubView extends FileView {
           const fileName = this.getFileName();
           let file = this.app.vault.getAbstractFileByPath(fileName);
           if (file == null || !(file instanceof TFile)) {
+            const folderPath = fileName.split("/").slice(0, -1).join("/");
+            if (folderPath) {
+              const folder = this.app.vault.getAbstractFileByPath(folderPath);
+              if (!(folder instanceof TFolder)) {
+                await this.app.vault.createFolder(folderPath);
+              }
+            }
             file = await this.app.vault.create(fileName, this.getFileContent());
           }
           const fileLeaf = this.app.workspace.createLeafBySplit(this.leaf);
@@ -187,7 +196,7 @@ Date: ${moment().toLocaleString()}
     const wrapperStyle: React.CSSProperties = {
       height: "100%",
       boxSizing: "border-box",
-      overflow: currentSettings.scrolledView ? "auto" : "hidden",
+      overflow: "hidden",
     };
 
     ReactDOM.render(
@@ -258,19 +267,37 @@ Date: ${moment().toLocaleString()}
     if (this.backlinkListenerRegistered) return;
     this.backlinkListenerRegistered = true;
     this.registerEvent(
-      this.app.metadataCache.on("resolved", () => {
-        if (!this.file) return;
-        if (this.refreshTimer) window.clearTimeout(this.refreshTimer);
-        this.refreshTimer = window.setTimeout(() => {
-          if (!this.file) return;
-          const next = this.backlinkManager.getHighlightsForBook(this.file);
-          const nextKey = this.getHighlightsKey(next);
-          if (nextKey === this.highlightsKey) return;
-          this.highlights = next;
-          this.highlightsKey = nextKey;
-          this.renderReader();
-        }, 150);
+      this.app.metadataCache.on("changed", (file) => {
+        if (!this.file || !file) return;
+        // Any markdown change might add/remove backlinks to the current book.
+        if (file.extension === "md") {
+          this.backlinksDirty = true;
+        }
+        if (file.path === this.file.path) {
+          this.backlinksDirty = true;
+        }
       })
     );
+    this.registerEvent(
+      this.app.metadataCache.on("resolved", () => {
+        if (!this.file || !this.backlinksDirty) return;
+        this.backlinksDirty = false;
+        this.scheduleBacklinkRefresh();
+      })
+    );
+  }
+
+  private scheduleBacklinkRefresh(): void {
+    if (!this.file) return;
+    if (this.refreshTimer) window.clearTimeout(this.refreshTimer);
+    this.refreshTimer = window.setTimeout(() => {
+      if (!this.file) return;
+      const next = this.backlinkManager.getHighlightsForBook(this.file);
+      const nextKey = this.getHighlightsKey(next);
+      if (nextKey === this.highlightsKey) return;
+      this.highlights = next;
+      this.highlightsKey = nextKey;
+      this.renderReader();
+    }, this.backlinkDebounceMs);
   }
 }

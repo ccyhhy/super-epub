@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { App, Notice, TFile } from "obsidian";
 import { ReactReader, ReactReaderStyle, type IReactReaderStyle } from "react-reader";
@@ -18,6 +18,11 @@ type ToolbarState = {
 };
 
 const DEFAULT_HIGHLIGHT_COLOR = "#ffd700";
+
+function readCssVar(el: HTMLElement, name: string): string | null {
+  const v = getComputedStyle(el).getPropertyValue(name).trim();
+  return v ? v : null;
+}
 
 function getRangeStartCfi(cfi: string): string | null {
   const m = cfi.match(/^epubcfi\((.+?),/);
@@ -66,6 +71,7 @@ export const EpubReader: React.FC<Props> = ({
   const renditionRef = useRef<Rendition | null>(null);
   const pendingJumpRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
   const lastSelectionAtRef = useRef(0);
   const highlightsRef = useRef<BacklinkHighlight[]>([]);
   const selectionColorRef = useRef<string>("");
@@ -84,6 +90,35 @@ export const EpubReader: React.FC<Props> = ({
       setPortalTarget(containerRef.current.ownerDocument.body);
     }
   }, [portalTarget]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => setToolbar(null);
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", handleScroll);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onUserActivity) return;
+    let lastTick = 0;
+    const minIntervalMs = 1000;
+    const handleScroll = () => {
+      const now = Date.now();
+      if (now - lastTick < minIntervalMs) return;
+      lastTick = now;
+      onUserActivity();
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [onUserActivity]);
 
   const clearSelection = useCallback(() => {
     const r = renditionRef.current;
@@ -116,11 +151,37 @@ export const EpubReader: React.FC<Props> = ({
     [app]
   );
 
-  const updateTheme = useCallback((rendition: Rendition) => {
-    const themes = rendition.themes;
-    themes.override("color", isDarkMode ? "#fff" : "#000");
-    themes.override("background", isDarkMode ? "#000" : "#fff");
+  const getThemeColors = useCallback(() => {
+    const body = document.body;
+    const bodyStyle = getComputedStyle(body);
+    const text =
+      readCssVar(body, "--text-normal") ||
+      bodyStyle.color ||
+      (isDarkMode ? "#fff" : "#000");
+    const background =
+      readCssVar(body, "--background-primary") ||
+      bodyStyle.backgroundColor ||
+      (isDarkMode ? "#000" : "#fff");
+    return {
+      text: text.trim(),
+      background: background.trim(),
+    };
   }, [isDarkMode]);
+
+  const updateTheme = useCallback(
+    (rendition: Rendition) => {
+      const themes = rendition.themes;
+      if (followObsidianTheme) {
+        const { text, background } = getThemeColors();
+        themes.override("color", text || (isDarkMode ? "#fff" : "#000"));
+        themes.override("background", background || (isDarkMode ? "#000" : "#fff"));
+        return;
+      }
+      themes.override("color", isDarkMode ? "#fff" : "#000");
+      themes.override("background", isDarkMode ? "#000" : "#fff");
+    },
+    [followObsidianTheme, getThemeColors, isDarkMode]
+  );
 
   const applyFontSize = useCallback((rendition: Rendition, size: number) => {
     rendition.themes.fontSize(`${size}%`);
@@ -202,8 +263,8 @@ export const EpubReader: React.FC<Props> = ({
     // 将透明度百分比转换为0-1范围，并保留颜色自身的alpha
     const baseOpacity = (highlightOpacity / 100) * alpha;
     const fillColor = `rgb(${r}, ${g}, ${b})`;
-    const fillOpacity = baseOpacity * 0.35;
     const selectionOpacity = Math.min(0.5, baseOpacity * 0.5);
+    const fillOpacity = selectionOpacity;
     const selectionColor = `rgba(${r}, ${g}, ${b}, ${selectionOpacity})`;
     const cornerRadius = 2;
     return {
@@ -225,6 +286,34 @@ export const EpubReader: React.FC<Props> = ({
       // ignore
     }
   }, []);
+
+  const applyBacklinkStyle = useCallback(
+    (c: Contents) => {
+      try {
+        const doc = c.document;
+        const existing = doc.getElementById("epubjs-backlink-overlay-style") as HTMLStyleElement | null;
+        const style = existing ?? doc.createElement("style");
+        style.id = "epubjs-backlink-overlay-style";
+        style.innerHTML = `
+          .epubjs-backlink-hl rect {
+            fill: ${highlightStyles.fillColor} !important;
+            fill-opacity: ${highlightStyles.fillOpacity} !important;
+            mix-blend-mode: normal !important;
+            stroke: none !important;
+            stroke-opacity: 0 !important;
+            stroke-width: 0 !important;
+            rx: ${highlightStyles.cornerRadius}px;
+            ry: ${highlightStyles.cornerRadius}px;
+            cursor: pointer;
+          }
+        `;
+        if (!existing) doc.head.appendChild(style);
+      } catch {
+        // ignore
+      }
+    },
+    [highlightStyles]
+  );
 
   // (mobile tap paging removed)
 
@@ -254,6 +343,13 @@ export const EpubReader: React.FC<Props> = ({
       const capped = (next ?? []).slice(0, 80);
       for (const hl of capped) {
         try {
+          const styles = {
+            fill: highlightStyles.fillColor,
+            "fill-opacity": String(highlightStyles.fillOpacity),
+            "mix-blend-mode": "normal",
+            stroke: "none",
+            "stroke-opacity": "0",
+          } as Record<string, string>;
           r.annotations.add(
             "highlight",
             hl.cfiRange,
@@ -262,7 +358,8 @@ export const EpubReader: React.FC<Props> = ({
               new Notice(`\u6253\u5f00\u53cd\u94fe\uff1a${hl.display}`);
               onOpenNote(hl.sourceFile);
             },
-            "epubjs-backlink-hl"
+            "epubjs-backlink-hl",
+            styles
           );
           addedBacklinkCfisRef.current.push(hl.cfiRange);
         } catch {
@@ -270,7 +367,7 @@ export const EpubReader: React.FC<Props> = ({
         }
       }
     },
-    [onOpenNote]
+    [highlightStyles, onOpenNote]
   );
 
   useEffect(() => {
@@ -284,8 +381,9 @@ export const EpubReader: React.FC<Props> = ({
     const list = Array.isArray(contents) ? contents : contents ? [contents] : [];
     for (const c of list) {
       applySelectionStyle(c, selectionColorRef.current);
+      applyBacklinkStyle(c);
     }
-  }, [highlightStyles, applySelectionStyle]);
+  }, [highlightStyles, applySelectionStyle, applyBacklinkStyle]);
 
   useEffect(() => {
     if (!rendition) return;
@@ -310,6 +408,11 @@ export const EpubReader: React.FC<Props> = ({
       cancelled = true;
     };
   }, [rendition, highlights, applyTypography, applyBacklinkHighlights]);
+
+  useEffect(() => {
+    if (!rendition) return;
+    applyBacklinkHighlights(rendition, highlightsRef.current);
+  }, [rendition, highlightStyles, applyBacklinkHighlights]);
 
   const onSelected = useCallback((cfiRange: string, contents: Contents) => {
     const sel = contents.window?.getSelection?.();
@@ -348,6 +451,30 @@ export const EpubReader: React.FC<Props> = ({
     });
   }, [onUserActivity]);
 
+  useLayoutEffect(() => {
+    if (!toolbar?.visible) return;
+    const el = toolbarRef.current;
+    if (!el) return;
+
+    const rect = el.getBoundingClientRect();
+    let nextX = toolbar.x;
+    let nextY = toolbar.y;
+    const margin = 8;
+
+    if (rect.left < margin) nextX += margin - rect.left;
+    if (rect.right > window.innerWidth - margin) {
+      nextX -= rect.right - (window.innerWidth - margin);
+    }
+    if (rect.top < margin) nextY += margin - rect.top;
+    if (rect.bottom > window.innerHeight - margin) {
+      nextY -= rect.bottom - (window.innerHeight - margin);
+    }
+
+    if (Math.abs(nextX - toolbar.x) > 0.5 || Math.abs(nextY - toolbar.y) > 0.5) {
+      setToolbar({ ...toolbar, x: nextX, y: nextY });
+    }
+  }, [toolbar]);
+
 
   useEffect(() => {
     if (!rendition) return;
@@ -368,9 +495,8 @@ export const EpubReader: React.FC<Props> = ({
 
     const hook = (c: Contents) => {
       try {
-        const body = c.window.document.body;
-        body.oncontextmenu = () => false;
         applySelectionStyle(c, selectionColorRef.current);
+        applyBacklinkStyle(c);
       } catch {
         // ignore
       }
@@ -401,31 +527,11 @@ export const EpubReader: React.FC<Props> = ({
     onSelected,
     applyBacklinkHighlights,
     applySelectionStyle,
+    applyBacklinkStyle,
     onUserActivity,
   ]);
 
-  useEffect(() => {
-    const doc = containerRef.current?.ownerDocument;
-    if (!doc) return;
-
-    const styleId = "epubjs-backlink-overlay-style";
-    const existing = doc.getElementById(styleId) as HTMLStyleElement | null;
-    const style = existing ?? doc.createElement("style");
-    style.id = styleId;
-    style.innerHTML = `
-      .epubjs-backlink-hl rect {
-        fill: ${highlightStyles.fillColor} !important;
-        fill-opacity: ${highlightStyles.fillOpacity} !important;
-        stroke: none !important;
-        stroke-opacity: 0 !important;
-        stroke-width: 0 !important;
-        rx: ${highlightStyles.cornerRadius}px;
-        ry: ${highlightStyles.cornerRadius}px;
-        cursor: pointer;
-      }
-    `;
-    if (!existing) doc.head.appendChild(style);
-  }, [highlightStyles]);
+  // (backlink style now injected into each content document)
 
   const handleCopyLink = useCallback(async () => {
     if (!toolbar) return;
@@ -460,6 +566,10 @@ export const EpubReader: React.FC<Props> = ({
       if (!container) return;
       const buttons = Array.from(container.querySelectorAll("button"));
       const tocBtn = buttons.find((btn) => {
+        const label = (btn.getAttribute("aria-label") || btn.getAttribute("title") || "").toLowerCase();
+        if (label.includes("toc") || label.includes("contents") || label.includes("table of contents") || label.includes("目录")) {
+          return true;
+        }
         if (btn.textContent && btn.textContent.trim()) return false;
         const spans = btn.querySelectorAll("span");
         return spans.length === 2;
@@ -473,6 +583,7 @@ export const EpubReader: React.FC<Props> = ({
 
   const toolbarNode = toolbar && toolbar.visible ? (
     <div
+      ref={toolbarRef}
       className="epub-toolbar"
       style={{ left: toolbar.x, top: toolbar.y, position: "fixed" }}
       onMouseDown={(e) => e.preventDefault()} // keep selection until click
@@ -604,10 +715,10 @@ const darkReaderTheme: IReactReaderStyle = {
   },
   tocButtonBar: {
     ...ReactReaderStyle.tocButtonBar,
-    background: "#fff",
+    background: "#111",
   },
   tocButton: {
     ...ReactReaderStyle.tocButton,
-    color: "white",
+    color: "#ddd",
   },
 };

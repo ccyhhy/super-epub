@@ -7,8 +7,6 @@ export type BacklinkHighlight = {
   display: string;    // display label
 };
 
-const CFI64_REGEX = /#cfi64=([A-Za-z0-9_-]+)/g;
-
 export class BacklinkManager {
   constructor(private readonly app: App) {}
 
@@ -21,6 +19,7 @@ export class BacklinkManager {
     const bookPath = bookFile.path;
     const resolvedLinks = this.app.metadataCache.resolvedLinks;
     const backlinksApi = (this.app.metadataCache as any).getBacklinksForFile?.(bookFile);
+    const cfiRegex = /#cfi64=([A-Za-z0-9_-]+)/g;
 
     // coarse candidates
     const candidates: TFile[] = [];
@@ -83,9 +82,9 @@ export class BacklinkManager {
         const display = String((item as any).displayText ?? sourceFile.basename);
 
         for (const raw of candidates) {
-          CFI64_REGEX.lastIndex = 0;
+          cfiRegex.lastIndex = 0;
           let m: RegExpExecArray | null;
-          while ((m = CFI64_REGEX.exec(raw)) !== null) {
+          while ((m = cfiRegex.exec(raw)) !== null) {
             const encoded = m[1];
             if (!encoded) continue;
             if (seenEncoded.has(encoded)) continue;

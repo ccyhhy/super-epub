@@ -23,15 +23,15 @@
 		"@typescript-eslint/parser": "^5.2.0",
 		"builtin-modules": "^3.2.0",
 		"esbuild": "^0.13.12",
-		"obsidian": "latest",
+		"obsidian": "^1.7.2",
+		"react": "^18.2.0",
+		"react-dom": "^18.2.0",
 		"tslib": "^2.3.1",
 		"typescript": "^4.4.4"
 	},
 	"dependencies": {
 		"epubjs": "^0.3.93",
-		"react": "npm:@preact/compat@^17.0.3",
-		"react-dom": "npm:@preact/compat@^17.0.3",
-		"react-reader": "^1.0.2",
+		"react-reader": "^2.0.15",
 		"use-local-storage-state": "^17.3.0"
 	}
 }
