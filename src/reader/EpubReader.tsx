@@ -338,12 +338,8 @@ export const EpubReader: React.FC<Props> = ({
           html, body {
             line-height: ${normalizedLineHeight} !important;
           }
-          p {
-            margin-top: 0 !important;
-            margin-bottom: ${normalizedParagraphSpacingEm}em !important;
-          }
-          p:last-child {
-            margin-bottom: 0 !important;
+          p + p {
+            margin-top: ${normalizedParagraphSpacingEm}em !important;
           }
         `;
         if (!existing) doc.head.appendChild(style);
