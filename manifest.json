@@ -1,7 +1,7 @@
 {
 	"id": "super-epub",
 	"name": "super-epub",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"minAppVersion": "0.12.0",
 	"description": "This is an ePub reader plugin for Obsidian. Can open document with \".epub\" file extension.",
 	"author": "ccyhhy",
