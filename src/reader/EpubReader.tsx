@@ -29,6 +29,11 @@ function getRangeStartCfi(cfi: string): string | null {
   return m?.[1] ? `epubcfi(${m[1]})` : null;
 }
 
+function clamp(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
 type Props = {
   app: App;
   file: TFile;
@@ -38,6 +43,8 @@ type Props = {
   highlightColor: string;
   highlightOpacity: number;
   fontSizePercent: number;
+  lineHeight: number;
+  paragraphSpacingEm: number;
   followObsidianTheme: boolean;
   followObsidianFont: boolean;
   initialLocation: string | number;
@@ -58,6 +65,8 @@ export const EpubReader: React.FC<Props> = ({
   highlightColor,
   highlightOpacity,
   fontSizePercent,
+  lineHeight,
+  paragraphSpacingEm,
   followObsidianTheme,
   followObsidianFont,
   initialLocation,
@@ -82,6 +91,8 @@ export const EpubReader: React.FC<Props> = ({
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const isDarkMode = useObsidianTheme(followObsidianTheme);
   const obsidianTypography = useObsidianTypography(followObsidianFont);
+  const normalizedLineHeight = clamp(lineHeight, 1.2, 2.4, 1.75);
+  const normalizedParagraphSpacingEm = clamp(paragraphSpacingEm, 0, 1.5, 0.4);
   // Track backlink highlights we added so we can remove them before re-adding.
   const addedBacklinkCfisRef = useRef<string[]>([]);
 
@@ -190,6 +201,7 @@ export const EpubReader: React.FC<Props> = ({
   const applyTypography = useCallback(
     (rendition: Rendition) => {
       const themes: any = rendition.themes;
+      themes.override("line-height", String(normalizedLineHeight));
       if (followObsidianFont) {
         if (obsidianTypography.fontFamily) {
           themes.override("font-family", obsidianTypography.fontFamily);
@@ -204,7 +216,7 @@ export const EpubReader: React.FC<Props> = ({
       themes.remove?.("font-size");
       applyFontSize(rendition, fontSizePercent);
     },
-    [followObsidianFont, obsidianTypography, fontSizePercent, applyFontSize]
+    [followObsidianFont, obsidianTypography, fontSizePercent, applyFontSize, normalizedLineHeight]
   );
 
   useEffect(() => {
@@ -315,6 +327,33 @@ export const EpubReader: React.FC<Props> = ({
     [highlightStyles]
   );
 
+  const applyReadingLayoutStyle = useCallback(
+    (c: Contents) => {
+      try {
+        const doc = c.document;
+        const existing = doc.getElementById("epubjs-reading-layout-style") as HTMLStyleElement | null;
+        const style = existing ?? doc.createElement("style");
+        style.id = "epubjs-reading-layout-style";
+        style.innerHTML = `
+          html, body {
+            line-height: ${normalizedLineHeight} !important;
+          }
+          p {
+            margin-top: 0 !important;
+            margin-bottom: ${normalizedParagraphSpacingEm}em !important;
+          }
+          p:last-child {
+            margin-bottom: 0 !important;
+          }
+        `;
+        if (!existing) doc.head.appendChild(style);
+      } catch {
+        // ignore
+      }
+    },
+    [normalizedLineHeight, normalizedParagraphSpacingEm]
+  );
+
   // (mobile tap paging removed)
 
   // Receive jump request: if rendition not ready yet, hold it.
@@ -382,8 +421,9 @@ export const EpubReader: React.FC<Props> = ({
     for (const c of list) {
       applySelectionStyle(c, selectionColorRef.current);
       applyBacklinkStyle(c);
+      applyReadingLayoutStyle(c);
     }
-  }, [highlightStyles, applySelectionStyle, applyBacklinkStyle]);
+  }, [highlightStyles, applySelectionStyle, applyBacklinkStyle, applyReadingLayoutStyle]);
 
   useEffect(() => {
     if (!rendition) return;
@@ -497,6 +537,7 @@ export const EpubReader: React.FC<Props> = ({
       try {
         applySelectionStyle(c, selectionColorRef.current);
         applyBacklinkStyle(c);
+        applyReadingLayoutStyle(c);
       } catch {
         // ignore
       }
@@ -528,6 +569,7 @@ export const EpubReader: React.FC<Props> = ({
     applyBacklinkHighlights,
     applySelectionStyle,
     applyBacklinkStyle,
+    applyReadingLayoutStyle,
     onUserActivity,
   ]);
 

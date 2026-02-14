@@ -1,10 +1,25 @@
-import { App, PluginSettingTab, Setting, TFile, TFolder, Vault } from "obsidian";
+import {
+  App,
+  ButtonComponent,
+  ColorComponent,
+  DropdownComponent,
+  PluginSettingTab,
+  Setting,
+  SliderComponent,
+  TextComponent,
+  TFile,
+  TFolder,
+  ToggleComponent,
+  Vault,
+} from "obsidian";
 import type EpubPlugin from "./EpubPlugin";
 import { parseColorComponents } from "../shared/utils";
 
 export interface EpubPluginSettings {
   scrolledView: boolean;
   fontSizePercent: number;
+  lineHeight: number;
+  paragraphSpacingEm: number;
   highlightColor: string;
   highlightOpacity: number;
   followObsidianTheme: boolean;
@@ -17,6 +32,8 @@ export interface EpubPluginSettings {
 export const DEFAULT_SETTINGS: EpubPluginSettings = {
   scrolledView: false,
   fontSizePercent: 100,
+  lineHeight: 1.75,
+  paragraphSpacingEm: 0.4,
   highlightColor: "#ffd700",
   highlightOpacity: 35,
   followObsidianTheme: true,
@@ -35,7 +52,7 @@ export class EpubSettingTab extends PluginSettingTab {
   }
 
   display(): void {
-    const { containerEl } = this;
+    const containerEl = (this as any).containerEl as HTMLElement;
     containerEl.empty();
     containerEl.createEl("h2", { text: "EPUB 设置" });
 
@@ -56,8 +73,8 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(readingSection)
       .setName("滚动阅读")
       .setDesc("开启后可连续滚动阅读。")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.scrolledView).onChange(async (value) => {
+      .addToggle((toggle: ToggleComponent) =>
+        toggle.setValue(this.plugin.settings.scrolledView).onChange(async (value: boolean) => {
           this.plugin.settings.scrolledView = value;
           await this.plugin.saveSettings();
         })
@@ -66,22 +83,54 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(readingSection)
       .setName("默认字号")
       .setDesc("阅读器默认字体大小（百分比）。")
-      .addSlider((slider) =>
+      .addSlider((slider: SliderComponent) =>
         slider
           .setLimits(80, 160, 5)
           .setValue(this.plugin.settings.fontSizePercent)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange(async (value: number) => {
             this.plugin.settings.fontSizePercent = value;
             await this.plugin.saveSettings();
+          })
+      );
+
+    const lineHeightSetting = new Setting(readingSection)
+      .setName("正文行高")
+      .setDesc(`调节同一段中每一行之间的距离（当前 ${this.plugin.settings.lineHeight.toFixed(2)}）。`)
+      .addSlider((slider: SliderComponent) =>
+        slider
+          .setLimits(1.2, 2.4, 0.05)
+          .setValue(this.plugin.settings.lineHeight)
+          .setDynamicTooltip()
+          .onChange(async (value: number) => {
+            const next = Number(value.toFixed(2));
+            this.plugin.settings.lineHeight = next;
+            await this.plugin.saveSettings();
+            lineHeightSetting.setDesc(`调节同一段中每一行之间的距离（当前 ${next.toFixed(2)}）。`);
+          })
+      );
+
+    const paragraphSpacingSetting = new Setting(readingSection)
+      .setName("段间距")
+      .setDesc(`调节段落与段落之间的留白（当前 ${this.plugin.settings.paragraphSpacingEm.toFixed(2)}em）。`)
+      .addSlider((slider: SliderComponent) =>
+        slider
+          .setLimits(0, 1.5, 0.05)
+          .setValue(this.plugin.settings.paragraphSpacingEm)
+          .setDynamicTooltip()
+          .onChange(async (value: number) => {
+            const next = Number(value.toFixed(2));
+            this.plugin.settings.paragraphSpacingEm = next;
+            await this.plugin.saveSettings();
+            paragraphSpacingSetting.setDesc(`调节段落与段落之间的留白（当前 ${next.toFixed(2)}em）。`);
           })
       );
 
     new Setting(readingSection)
       .setName("跟随 Obsidian 主题")
       .setDesc("阅读器明暗主题与 Obsidian 同步。")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.followObsidianTheme).onChange(async (value) => {
+      .addToggle((toggle: ToggleComponent) =>
+        toggle.setValue(this.plugin.settings.followObsidianTheme).onChange(async (value: boolean) => {
           this.plugin.settings.followObsidianTheme = value;
           await this.plugin.saveSettings();
         })
@@ -90,8 +139,8 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(readingSection)
       .setName("跟随 Obsidian 字体")
       .setDesc("字体与字号跟随 Obsidian 设置。")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.followObsidianFont).onChange(async (value) => {
+      .addToggle((toggle: ToggleComponent) =>
+        toggle.setValue(this.plugin.settings.followObsidianFont).onChange(async (value: boolean) => {
           this.plugin.settings.followObsidianFont = value;
           await this.plugin.saveSettings();
         })
@@ -151,8 +200,8 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(highlightSection)
       .setName("自定义颜色")
       .setDesc("选择自定义高亮颜色。")
-      .addColorPicker((colorPicker) => {
-        colorPicker.setValue(this.plugin.settings.highlightColor).onChange(async (value) => {
+      .addColorPicker((colorPicker: ColorComponent) => {
+        colorPicker.setValue(this.plugin.settings.highlightColor).onChange(async (value: string) => {
           this.plugin.settings.highlightColor = value;
           await this.plugin.saveSettings();
           updatePreview();
@@ -162,12 +211,12 @@ export class EpubSettingTab extends PluginSettingTab {
     const opacitySetting = new Setting(highlightSection)
       .setName("高亮透明度")
       .setDesc(`调整高亮颜色的透明度 (${this.plugin.settings.highlightOpacity}%)`)
-      .addSlider((slider) =>
+      .addSlider((slider: SliderComponent) =>
         slider
           .setLimits(10, 100, 5)
           .setValue(this.plugin.settings.highlightOpacity)
           .setDynamicTooltip()
-          .onChange(async (value) => {
+          .onChange(async (value: number) => {
             this.plugin.settings.highlightOpacity = value;
             await this.plugin.saveSettings();
             opacitySetting.setDesc(`调整高亮颜色的透明度 (${value}%)`);
@@ -178,7 +227,7 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(highlightSection)
       .setName("重置为默认")
       .setDesc("恢复默认高亮颜色设置。")
-      .addButton((button) =>
+      .addButton((button: ButtonComponent) =>
         button
           .setButtonText("重置")
           .setCta()
@@ -203,8 +252,8 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(noteSection)
       .setName("同目录保存")
       .setDesc("开启后，epub 笔记将创建在与书籍相同的文件夹。")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.useSameFolder).onChange(async (value) => {
+      .addToggle((toggle: ToggleComponent) =>
+        toggle.setValue(this.plugin.settings.useSameFolder).onChange(async (value: boolean) => {
           this.plugin.settings.useSameFolder = value;
           await this.plugin.saveSettings();
           updateNotePathDisabled();
@@ -214,11 +263,11 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(noteSection)
       .setName("笔记文件夹")
       .setDesc("选择 epub 笔记默认保存位置。开启“同目录保存”后此项无效。")
-      .addDropdown((dropdown) => {
+      .addDropdown((dropdown: DropdownComponent) => {
         dropdown
           .addOptions(getFolderOptions(this.app))
           .setValue(this.plugin.settings.notePath)
-          .onChange(async (value) => {
+          .onChange(async (value: string) => {
             this.plugin.settings.notePath = value;
             await this.plugin.saveSettings();
           });
@@ -229,9 +278,9 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(noteSection)
       .setName("标签")
       .setDesc("新建笔记的元数据标签（可用空格或逗号分隔）。")
-      .addText((text) => {
+      .addText((text: TextComponent) => {
         text.inputEl.size = 50;
-        text.setValue(this.plugin.settings.tags).onChange(async (value) => {
+        text.setValue(this.plugin.settings.tags).onChange(async (value: string) => {
           this.plugin.settings.tags = value;
           await this.plugin.saveSettings();
         });
@@ -244,7 +293,7 @@ export class EpubSettingTab extends PluginSettingTab {
     new Setting(statsSection)
       .setName("刷新统计")
       .setDesc("重新加载统计数据。")
-      .addButton((button) =>
+      .addButton((button: ButtonComponent) =>
         button.setButtonText("刷新").onClick(() => this.display())
       );
 

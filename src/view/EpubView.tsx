@@ -210,6 +210,8 @@ Date: ${moment().toLocaleString()}
             highlightColor={currentSettings.highlightColor}
             highlightOpacity={currentSettings.highlightOpacity}
             fontSizePercent={currentSettings.fontSizePercent}
+            lineHeight={currentSettings.lineHeight}
+            paragraphSpacingEm={currentSettings.paragraphSpacingEm}
             followObsidianTheme={currentSettings.followObsidianTheme}
             followObsidianFont={currentSettings.followObsidianFont}
             initialLocation={initialLocation}
