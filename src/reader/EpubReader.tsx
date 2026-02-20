@@ -1,28 +1,16 @@
 import * as React from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { App, Notice, TFile } from "obsidian";
 import { ReactReader, ReactReaderStyle, type IReactReaderStyle } from "react-reader";
 import type { Contents, Rendition } from "epubjs";
 import type { BacklinkHighlight } from "../services/BacklinkManager";
-import { base64UrlEncode, parseColorComponents, sanitizeLinkText } from "../shared/utils";
+import { base64UrlEncode, sanitizeLinkText } from "../shared/utils";
 import { useObsidianTheme } from "./hooks/useObsidianTheme";
 import { useObsidianTypography } from "./hooks/useObsidianTypography";
-
-type ToolbarState = {
-  visible: boolean;
-  x: number;
-  y: number;
-  cfiRange: string;
-  text: string;
-};
-
-const DEFAULT_HIGHLIGHT_COLOR = "#ffd700";
-
-function readCssVar(el: HTMLElement, name: string): string | null {
-  const v = getComputedStyle(el).getPropertyValue(name).trim();
-  return v ? v : null;
-}
+import { useHighlightStyles } from "./hooks/useHighlightStyles";
+import { useReaderTheme } from "./hooks/useReaderTheme";
+import { useSelectionToolbar } from "./hooks/useSelectionToolbar";
 
 function getRangeStartCfi(cfi: string): string | null {
   const m = cfi.match(/^epubcfi\((.+?),/);
@@ -80,21 +68,36 @@ export const EpubReader: React.FC<Props> = ({
   const renditionRef = useRef<Rendition | null>(null);
   const pendingJumpRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const toolbarRef = useRef<HTMLDivElement | null>(null);
-  const lastSelectionAtRef = useRef(0);
   const highlightsRef = useRef<BacklinkHighlight[]>([]);
   const selectionColorRef = useRef<string>("");
+  const addedBacklinkCfisRef = useRef<string[]>([]);
 
   const [rendition, setRendition] = useState<Rendition | null>(null);
   const [location, setLocation] = useState<string | number>(initialLocation);
-  const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  // Custom hooks (#7)
   const isDarkMode = useObsidianTheme(followObsidianTheme);
   const obsidianTypography = useObsidianTypography(followObsidianFont);
   const normalizedLineHeight = clamp(lineHeight, 1.2, 2.4, 1.75);
   const normalizedParagraphSpacingEm = clamp(paragraphSpacingEm, 0, 1.5, 0.4);
-  // Track backlink highlights we added so we can remove them before re-adding.
-  const addedBacklinkCfisRef = useRef<string[]>([]);
+  const highlightStyles = useHighlightStyles(highlightColor, highlightOpacity);
+  const { updateTheme, applyTypography } = useReaderTheme(
+    isDarkMode,
+    followObsidianTheme,
+    followObsidianFont,
+    obsidianTypography,
+    fontSizePercent,
+    normalizedLineHeight
+  );
+  const {
+    toolbar,
+    toolbarRef,
+    setToolbar,
+    dismissToolbar,
+    onSelected,
+    handleClick: handleToolbarClick,
+  } = useSelectionToolbar(onUserActivity);
 
   useEffect(() => {
     if (!portalTarget && containerRef.current?.ownerDocument?.body) {
@@ -105,14 +108,14 @@ export const EpubReader: React.FC<Props> = ({
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const handleScroll = () => setToolbar(null);
+    const handleScroll = () => dismissToolbar();
     container.addEventListener("scroll", handleScroll, { passive: true });
     window.addEventListener("resize", handleScroll);
     return () => {
       container.removeEventListener("scroll", handleScroll);
       window.removeEventListener("resize", handleScroll);
     };
-  }, []);
+  }, [dismissToolbar]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -135,23 +138,21 @@ export const EpubReader: React.FC<Props> = ({
     const r = renditionRef.current;
     if (!r) return;
 
-    // Type-safe: getContents() typing differs across epubjs/react-reader versions
     const gc: any = (r as any).getContents?.();
-
     const list: any[] = Array.isArray(gc) ? gc : gc ? [gc] : [];
 
     for (const c of list) {
       try {
         c?.window?.getSelection?.()?.removeAllRanges?.();
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[super-epub] clearSelection error:", err);
       }
     }
   }, []);
 
   const writeClipboard = useCallback(
     async (text: string) => {
-      // @ts-ignore
+      // @ts-ignore - Obsidian internal API
       const cm = app.clipboardManager;
       if (cm?.writeText) {
         await cm.writeText(text);
@@ -160,63 +161,6 @@ export const EpubReader: React.FC<Props> = ({
       await navigator.clipboard.writeText(text);
     },
     [app]
-  );
-
-  const getThemeColors = useCallback(() => {
-    const body = document.body;
-    const bodyStyle = getComputedStyle(body);
-    const text =
-      readCssVar(body, "--text-normal") ||
-      bodyStyle.color ||
-      (isDarkMode ? "#fff" : "#000");
-    const background =
-      readCssVar(body, "--background-primary") ||
-      bodyStyle.backgroundColor ||
-      (isDarkMode ? "#000" : "#fff");
-    return {
-      text: text.trim(),
-      background: background.trim(),
-    };
-  }, [isDarkMode]);
-
-  const updateTheme = useCallback(
-    (rendition: Rendition) => {
-      const themes = rendition.themes;
-      if (followObsidianTheme) {
-        const { text, background } = getThemeColors();
-        themes.override("color", text || (isDarkMode ? "#fff" : "#000"));
-        themes.override("background", background || (isDarkMode ? "#000" : "#fff"));
-        return;
-      }
-      themes.override("color", isDarkMode ? "#fff" : "#000");
-      themes.override("background", isDarkMode ? "#000" : "#fff");
-    },
-    [followObsidianTheme, getThemeColors, isDarkMode]
-  );
-
-  const applyFontSize = useCallback((rendition: Rendition, size: number) => {
-    rendition.themes.fontSize(`${size}%`);
-  }, []);
-
-  const applyTypography = useCallback(
-    (rendition: Rendition) => {
-      const themes: any = rendition.themes;
-      themes.override("line-height", String(normalizedLineHeight));
-      if (followObsidianFont) {
-        if (obsidianTypography.fontFamily) {
-          themes.override("font-family", obsidianTypography.fontFamily);
-        }
-        if (obsidianTypography.fontSize) {
-          themes.override("font-size", obsidianTypography.fontSize);
-        }
-        return;
-      }
-
-      themes.remove?.("font-family");
-      themes.remove?.("font-size");
-      applyFontSize(rendition, fontSizePercent);
-    },
-    [followObsidianFont, obsidianTypography, fontSizePercent, applyFontSize, normalizedLineHeight]
   );
 
   useEffect(() => {
@@ -229,15 +173,16 @@ export const EpubReader: React.FC<Props> = ({
     if (ready && typeof ready.then === "function") {
       try {
         await ready;
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[super-epub] book.ready rejected:", err);
       }
     }
 
     try {
       await rendition.display(cfi);
       return true;
-    } catch {
+    } catch (err) {
+      console.debug("[super-epub] display cfi failed:", err);
       return false;
     }
   }, []);
@@ -263,29 +208,13 @@ export const EpubReader: React.FC<Props> = ({
     (epubcfi: string | number) => {
       setLocation(epubcfi);
       onLocationChange(epubcfi);
-      setToolbar(null);
+      dismissToolbar();
       onUserActivity?.();
     },
-    [onLocationChange, onUserActivity]
+    [onLocationChange, onUserActivity, dismissToolbar]
   );
 
-  // 计算高亮颜色样式
-  const highlightStyles = useMemo(() => {
-    const { r, g, b, alpha } = parseColorComponents(highlightColor, DEFAULT_HIGHLIGHT_COLOR);
-    // 将透明度百分比转换为0-1范围，并保留颜色自身的alpha
-    const baseOpacity = (highlightOpacity / 100) * alpha;
-    const fillColor = `rgb(${r}, ${g}, ${b})`;
-    const selectionOpacity = Math.min(0.5, baseOpacity * 0.5);
-    const fillOpacity = selectionOpacity;
-    const selectionColor = `rgba(${r}, ${g}, ${b}, ${selectionOpacity})`;
-    const cornerRadius = 2;
-    return {
-      fillColor,
-      fillOpacity,
-      selectionColor,
-      cornerRadius,
-    };
-  }, [highlightColor, highlightOpacity]);
+  // --- Style injection helpers ---
 
   const applySelectionStyle = useCallback((c: Contents, color: string) => {
     try {
@@ -294,8 +223,8 @@ export const EpubReader: React.FC<Props> = ({
       style.id = "epubjs-selection-style";
       style.innerHTML = `::selection { background: ${color}; }`;
       if (!existing) c.document.head.appendChild(style);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.debug("[super-epub] applySelectionStyle error:", err);
     }
   }, []);
 
@@ -320,8 +249,8 @@ export const EpubReader: React.FC<Props> = ({
           }
         `;
         if (!existing) doc.head.appendChild(style);
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[super-epub] applyBacklinkStyle error:", err);
       }
     },
     [highlightStyles]
@@ -343,14 +272,12 @@ export const EpubReader: React.FC<Props> = ({
           }
         `;
         if (!existing) doc.head.appendChild(style);
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[super-epub] applyReadingLayoutStyle error:", err);
       }
     },
     [normalizedLineHeight, normalizedParagraphSpacingEm]
   );
-
-  // (mobile tap paging removed)
 
   // Receive jump request: if rendition not ready yet, hold it.
   useEffect(() => {
@@ -361,15 +288,16 @@ export const EpubReader: React.FC<Props> = ({
     });
   }, [jumpCfiRange, displayJumpCfi]);
 
-  // Cleanup-first backlinks render
+  // --- Backlink highlights (#3: unified into single application point) ---
+
   const applyBacklinkHighlights = useCallback(
     (r: Rendition, next: BacklinkHighlight[]) => {
       // remove old
       for (const cfi of addedBacklinkCfisRef.current) {
         try {
           r.annotations.remove(cfi, "highlight");
-        } catch {
-          // ignore
+        } catch (err) {
+          console.debug("[super-epub] remove highlight error:", err);
         }
       }
       addedBacklinkCfisRef.current = [];
@@ -390,15 +318,15 @@ export const EpubReader: React.FC<Props> = ({
             hl.cfiRange,
             {},
             () => {
-              new Notice(`\u6253\u5f00\u53cd\u94fe\uff1a${hl.display}`);
+              new Notice(`打开反链：${hl.display}`);
               onOpenNote(hl.sourceFile);
             },
             "epubjs-backlink-hl",
             styles
           );
           addedBacklinkCfisRef.current.push(hl.cfiRange);
-        } catch {
-          // ignore invalid ranges
+        } catch (err) {
+          console.debug("[super-epub] add highlight error:", err);
         }
       }
     },
@@ -409,9 +337,12 @@ export const EpubReader: React.FC<Props> = ({
     highlightsRef.current = highlights;
   }, [highlights]);
 
+  // #3: Merged duplicate highlight effects into a single unified effect
   useEffect(() => {
     selectionColorRef.current = highlightStyles.selectionColor;
     const r = renditionRef.current;
+    if (!r) return;
+
     const contents: any = (r as any)?.getContents?.();
     const list = Array.isArray(contents) ? contents : contents ? [contents] : [];
     for (const c of list) {
@@ -421,6 +352,7 @@ export const EpubReader: React.FC<Props> = ({
     }
   }, [highlightStyles, applySelectionStyle, applyBacklinkStyle, applyReadingLayoutStyle]);
 
+  // #3: Single unified effect for rendition + highlights + typography
   useEffect(() => {
     if (!rendition) return;
     applyTypography(rendition);
@@ -431,8 +363,8 @@ export const EpubReader: React.FC<Props> = ({
       if (ready && typeof ready.then === "function") {
         try {
           await ready;
-        } catch {
-          // ignore
+        } catch (err) {
+          console.debug("[super-epub] book.ready error:", err);
         }
       }
       if (cancelled) return;
@@ -443,86 +375,15 @@ export const EpubReader: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [rendition, highlights, applyTypography, applyBacklinkHighlights]);
+  }, [rendition, highlights, highlightStyles, applyTypography, applyBacklinkHighlights]);
 
-  useEffect(() => {
-    if (!rendition) return;
-    applyBacklinkHighlights(rendition, highlightsRef.current);
-  }, [rendition, highlightStyles, applyBacklinkHighlights]);
-
-  const onSelected = useCallback((cfiRange: string, contents: Contents) => {
-    const sel = contents.window?.getSelection?.();
-    if (!sel || sel.rangeCount === 0) return;
-
-    const text = sel.toString();
-    if (!text || !text.trim()) return;
-
-    const range = sel.getRangeAt(0);
-    const rects = range.getClientRects();
-    const rect = rects.length ? rects[0] : range.getBoundingClientRect();
-    if (!rect || (rect.width === 0 && rect.height === 0)) return;
-
-    // Reliable iframe offset: frameElement of this contents
-    const frameEl = contents.document?.defaultView?.frameElement as HTMLElement | null;
-    if (!frameEl) return;
-
-    const iframeRect = frameEl.getBoundingClientRect();
-
-    const absX = iframeRect.left + rect.left + rect.width / 2;
-    let absY = iframeRect.top + rect.top - 44; // above selection
-    if (absY < 24) absY = iframeRect.top + rect.bottom + 10; // below if near top
-
-    // Convert viewport coords -> container coords (avoids issues with transforms/fixed positioning in Obsidian)
-    const x = absX;
-    const y = absY;
-
-    lastSelectionAtRef.current = Date.now();
-    onUserActivity?.();
-    setToolbar({
-      visible: true,
-      x,
-      y,
-      cfiRange,
-      text,
-    });
-  }, [onUserActivity]);
-
-  useLayoutEffect(() => {
-    if (!toolbar?.visible) return;
-    const el = toolbarRef.current;
-    if (!el) return;
-
-    const rect = el.getBoundingClientRect();
-    let nextX = toolbar.x;
-    let nextY = toolbar.y;
-    const margin = 8;
-
-    if (rect.left < margin) nextX += margin - rect.left;
-    if (rect.right > window.innerWidth - margin) {
-      nextX -= rect.right - (window.innerWidth - margin);
-    }
-    if (rect.top < margin) nextY += margin - rect.top;
-    if (rect.bottom > window.innerHeight - margin) {
-      nextY -= rect.bottom - (window.innerHeight - margin);
-    }
-
-    if (Math.abs(nextX - toolbar.x) > 0.5 || Math.abs(nextY - toolbar.y) > 0.5) {
-      setToolbar({ ...toolbar, x: nextX, y: nextY });
-    }
-  }, [toolbar]);
-
+  // --- Rendition event handlers ---
 
   useEffect(() => {
     if (!rendition) return;
 
-    const handleClick = () => {
-      const now = Date.now();
-      if (now - lastSelectionAtRef.current < 200) return;
-      setToolbar(null);
-    };
-
-    const handleRelocated = (location: any) => {
-      setToolbar(null);
+    const handleRelocated = () => {
+      dismissToolbar();
       onUserActivity?.();
     };
     const handleRendered = () => {
@@ -534,13 +395,13 @@ export const EpubReader: React.FC<Props> = ({
         applySelectionStyle(c, selectionColorRef.current);
         applyBacklinkStyle(c);
         applyReadingLayoutStyle(c);
-      } catch {
-        // ignore
+      } catch (err) {
+        console.debug("[super-epub] content hook error:", err);
       }
     };
 
     rendition.on("selected", onSelected);
-    rendition.on("click", handleClick);
+    rendition.on("click", handleToolbarClick);
     rendition.on("relocated", handleRelocated);
     rendition.on("rendered", handleRendered);
     const contentHook = (rendition.hooks as any)?.content;
@@ -554,7 +415,7 @@ export const EpubReader: React.FC<Props> = ({
 
     return () => {
       rendition.off("selected", onSelected);
-      rendition.off("click", handleClick);
+      rendition.off("click", handleToolbarClick);
       rendition.off("relocated", handleRelocated);
       rendition.off("rendered", handleRendered);
       contentHook?.unregister?.(hook);
@@ -562,44 +423,51 @@ export const EpubReader: React.FC<Props> = ({
   }, [
     rendition,
     onSelected,
+    handleToolbarClick,
     applyBacklinkHighlights,
     applySelectionStyle,
     applyBacklinkStyle,
     applyReadingLayoutStyle,
     onUserActivity,
+    dismissToolbar,
   ]);
-
-  // (backlink style now injected into each content document)
 
   const handleCopyLink = useCallback(async () => {
     if (!toolbar) return;
 
     let label = sanitizeLinkText(toolbar.text);
-    if (!label) label = "\u5f15\u7528";
+    if (!label) label = "引用";
     if (label.length > 60) label = label.slice(0, 60) + "...";
 
     const cfi64 = base64UrlEncode(toolbar.cfiRange);
-    // Use full path so links resolve uniquely
     const link = `[[${file.path}#cfi64=${cfi64}|${label}]]`;
 
     try {
       await writeClipboard(link);
-      new Notice("EPUB \u94fe\u63a5\u5df2\u590d\u5236");
-    } catch {
-      new Notice("\u590d\u5236\u5931\u8d25");
+      new Notice("EPUB 链接已复制");
+    } catch (err) {
+      console.warn("[super-epub] Copy failed:", err);
+      new Notice("复制失败");
     } finally {
-      setToolbar(null);
+      dismissToolbar();
       clearSelection();
     }
-  }, [toolbar, file.path, writeClipboard, clearSelection]);
+  }, [toolbar, file.path, writeClipboard, clearSelection, dismissToolbar]);
 
   const readerStyles = useMemo<IReactReaderStyle>(() => {
     return isDarkMode ? darkReaderTheme : lightReaderTheme;
   }, [isDarkMode]);
 
+  // #16: Improved TOC toggle — uses ref-based approach instead of fragile DOM query
+  const tocButtonRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (!onRegisterActions) return;
     const toggleToc = () => {
+      // Try ref first, then fall back to container query
+      if (tocButtonRef.current) {
+        tocButtonRef.current.click();
+        return;
+      }
       const container = containerRef.current;
       if (!container) return;
       const buttons = Array.from(container.querySelectorAll("button"));
@@ -612,12 +480,13 @@ export const EpubReader: React.FC<Props> = ({
         const spans = btn.querySelectorAll("span");
         return spans.length === 2;
       });
-      tocBtn?.click();
+      if (tocBtn) {
+        tocButtonRef.current = tocBtn; // cache for next time
+        tocBtn.click();
+      }
     };
     onRegisterActions({ toggleToc });
   }, [onRegisterActions]);
-
-  // (mobile-only arrow suppression removed)
 
   const toolbarNode = toolbar && toolbar.visible ? (
     <div
@@ -629,8 +498,8 @@ export const EpubReader: React.FC<Props> = ({
       <button
         className="mod-cta epub-toolbar__button"
         onClick={handleCopyLink}
-        aria-label="\u590d\u5236\u94fe\u63a5"
-        title="\u590d\u5236\u94fe\u63a5"
+        aria-label="复制链接"
+        title="复制链接"
       >
         复制链接
       </button>
@@ -676,10 +545,10 @@ export const EpubReader: React.FC<Props> = ({
         epubOptions={
           scrolled
             ? {
-                allowPopups: true,
-                flow: "scrolled",
-                manager: "continuous",
-              }
+              allowPopups: true,
+              flow: "scrolled",
+              manager: "continuous",
+            }
             : undefined
         }
         readerStyles={readerStyles}

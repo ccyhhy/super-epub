@@ -120,7 +120,14 @@ export default class EpubPlugin extends Plugin implements ProgressStore {
     );
   }
 
-  onunload() {}
+  onunload() {
+    if (this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    // Flush any pending data synchronously
+    this.savePluginData().catch((err) => console.warn("[super-epub] Failed to save on unload:", err));
+  }
 
   // ====== ProgressStore?? EpubView/EpubReader ? ======
   getProgress(bookPath: string): string | number | null {
@@ -148,11 +155,10 @@ export default class EpubPlugin extends Plugin implements ProgressStore {
   }
 
   private requestSave(): void {
-
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;
-      this.savePluginData().catch(() => {});
+      this.savePluginData().catch((err) => console.warn("[super-epub] Auto-save failed:", err));
     }, this.saveMinDelayMs);
   }
 

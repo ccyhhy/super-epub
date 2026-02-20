@@ -26,7 +26,7 @@ export function base64UrlDecode(encoded: string): string {
 export function sanitizeLinkText(text: string): string {
   return (text ?? "")
     .replace(/\|/g, " ")
-    .replace(/[\[\]]/g, "")
+    .replace(/[[\]]/g, "")
     .replace(/[\r\n]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -70,94 +70,109 @@ export function normalizeProgressKey(bookPath: string): string {
   return normalizePath(bookPath);
 }
 
+// ========== Color Utilities (#17: split into focused functions) ==========
+
+/** Parse a hex string (#RGB, #RRGGBB, #RRGGBBAA, or bare hex) into normalized #rrggbb(aa) */
+function parseHex(cleaned: string): string | null {
+  const hex = cleaned.startsWith("#") ? cleaned.slice(1) : cleaned;
+
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    return `#${hex.split("").map((c) => c + c).join("").toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+    return `#${hex.split("").map((c) => c + c).join("").toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return `#${hex.toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{8}$/.test(hex)) {
+    return `#${hex.toLowerCase()}`;
+  }
+  return null;
+}
+
+/** Parse rgb(r, g, b) into #rrggbb */
+function parseRgb(cleaned: string): string | null {
+  const m = cleaned.match(/^rgb\((\d+),(\d+),(\d+)\)$/i);
+  if (!m) return null;
+  const r = Math.min(255, Math.max(0, parseInt(m[1], 10)));
+  const g = Math.min(255, Math.max(0, parseInt(m[2], 10)));
+  const b = Math.min(255, Math.max(0, parseInt(m[3], 10)));
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+/** Parse rgba(r, g, b, a) into #rrggbbaa */
+function parseRgba(cleaned: string): string | null {
+  const m = cleaned.match(/^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/i);
+  if (!m) return null;
+  const r = Math.min(255, Math.max(0, parseInt(m[1], 10)));
+  const g = Math.min(255, Math.max(0, parseInt(m[2], 10)));
+  const b = Math.min(255, Math.max(0, parseInt(m[3], 10)));
+  const a = Math.min(1, Math.max(0, parseFloat(m[4])));
+  const alphaHex = Math.round(a * 255).toString(16).padStart(2, "0");
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}${alphaHex}`;
+}
+
+/** Named color lookup */
+const COLOR_NAMES: Record<string, string> = {
+  red: "#ff0000",
+  green: "#008000",
+  blue: "#0000ff",
+  yellow: "#ffff00",
+  orange: "#ffa500",
+  purple: "#800080",
+  pink: "#ffc0cb",
+  brown: "#a52a2a",
+  black: "#000000",
+  white: "#ffffff",
+  gray: "#808080",
+  grey: "#808080",
+  gold: "#ffd700",
+  lightblue: "#add8e6",
+  lightgreen: "#90ee90",
+  lightyellow: "#ffffe0",
+  lightpink: "#ffb6c1",
+  cyan: "#00ffff",
+  magenta: "#ff00ff",
+  lime: "#00ff00",
+  teal: "#008080",
+  navy: "#000080",
+  maroon: "#800000",
+  olive: "#808000",
+  silver: "#c0c0c0",
+};
+
+/**
+ * Normalize various color formats to #rrggbb or #rrggbbaa.
+ * Supports: hex (#RGB, #RRGGBB, #RRGGBBAA), rgb(), rgba(), named colors, bare hex.
+ * #17: Refactored from a single 90-line function into composable parsers.
+ */
 export function normalizeColor(input: string): string | null {
   const raw = (input ?? "").trim();
   if (!raw) return null;
 
   const cleaned = raw.replace(/\s+/g, "");
 
+  // Try hex formats (with # prefix)
   if (cleaned.startsWith("#")) {
-    const hex = cleaned.slice(1);
-    if (hex.length === 3 && /^[0-9a-fA-F]{3}$/.test(hex)) {
-      return `#${hex.split("").map((c) => c + c).join("").toLowerCase()}`;
-    }
-    if (hex.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex)) {
-      return `#${hex.split("").map((c) => c + c).join("").toLowerCase()}`;
-    }
-    if (hex.length === 6 && /^[0-9a-fA-F]{6}$/.test(hex)) {
-      return `#${hex.toLowerCase()}`;
-    }
-    if (hex.length === 8 && /^[0-9a-fA-F]{8}$/.test(hex)) {
-      return `#${hex.toLowerCase()}`;
-    }
+    return parseHex(cleaned);
   }
 
-  const rgbMatch = cleaned.match(/^rgb\((\d+),(\d+),(\d+)\)$/i);
-  if (rgbMatch) {
-    const r = Math.min(255, Math.max(0, parseInt(rgbMatch[1], 10)));
-    const g = Math.min(255, Math.max(0, parseInt(rgbMatch[2], 10)));
-    const b = Math.min(255, Math.max(0, parseInt(rgbMatch[3], 10)));
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b
-      .toString(16)
-      .padStart(2, "0")}`;
-  }
+  // Try rgb/rgba
+  const rgbResult = parseRgb(cleaned);
+  if (rgbResult) return rgbResult;
 
-  const rgbaMatch = cleaned.match(/^rgba\((\d+),(\d+),(\d+),([\d.]+)\)$/i);
-  if (rgbaMatch) {
-    const r = Math.min(255, Math.max(0, parseInt(rgbaMatch[1], 10)));
-    const g = Math.min(255, Math.max(0, parseInt(rgbaMatch[2], 10)));
-    const b = Math.min(255, Math.max(0, parseInt(rgbaMatch[3], 10)));
-    const a = Math.min(1, Math.max(0, parseFloat(rgbaMatch[4])));
-    const alphaHex = Math.round(a * 255)
-      .toString(16)
-      .padStart(2, "0");
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b
-      .toString(16)
-      .padStart(2, "0")}${alphaHex}`;
-  }
+  const rgbaResult = parseRgba(cleaned);
+  if (rgbaResult) return rgbaResult;
 
-  const colorNames: Record<string, string> = {
-    red: "#ff0000",
-    green: "#008000",
-    blue: "#0000ff",
-    yellow: "#ffff00",
-    orange: "#ffa500",
-    purple: "#800080",
-    pink: "#ffc0cb",
-    brown: "#a52a2a",
-    black: "#000000",
-    white: "#ffffff",
-    gray: "#808080",
-    grey: "#808080",
-    gold: "#ffd700",
-    lightblue: "#add8e6",
-    lightgreen: "#90ee90",
-    lightyellow: "#ffffe0",
-    lightpink: "#ffb6c1",
-    cyan: "#00ffff",
-    magenta: "#ff00ff",
-    lime: "#00ff00",
-    teal: "#008080",
-    navy: "#000080",
-    maroon: "#800000",
-    olive: "#808000",
-    silver: "#c0c0c0",
-  };
-
+  // Try named color
   const lowerName = cleaned.toLowerCase();
-  if (colorNames[lowerName]) {
-    return colorNames[lowerName];
+  if (COLOR_NAMES[lowerName]) {
+    return COLOR_NAMES[lowerName];
   }
 
-  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
-    return `#${cleaned.toLowerCase()}`;
-  }
-
-  if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
-    return `#${cleaned.split("").map((c) => c + c).join("").toLowerCase()}`;
-  }
-
-  return null;
+  // Try bare hex (no # prefix)
+  return parseHex(cleaned);
 }
 
 export function parseColorComponents(

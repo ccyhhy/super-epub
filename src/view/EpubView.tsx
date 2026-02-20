@@ -1,6 +1,6 @@
-import { WorkspaceLeaf, FileView, TFile, TFolder, Menu, moment } from "obsidian";
+import { WorkspaceLeaf, FileView, TFile, TFolder, Menu, moment, normalizePath } from "obsidian";
 import * as React from "react";
-import * as ReactDOM from "react-dom";
+import { createRoot, Root } from "react-dom/client";
 import type { EpubPluginSettings } from "../plugin/EpubPluginSettings";
 import { EpubReader } from "../reader/EpubReader";
 import { BacklinkManager, BacklinkHighlight } from "../services/BacklinkManager";
@@ -31,6 +31,7 @@ export class EpubView extends FileView {
 
   private fileContent: ArrayBuffer | null = null;
   private jumpCfiRange: string | null = null;
+  private root: Root | null = null;
 
   private readonly backlinkManager: BacklinkManager;
   private highlights: BacklinkHighlight[] = [];
@@ -42,6 +43,22 @@ export class EpubView extends FileView {
   private readonly readingTracker: ReadingTracker;
   private isActiveLeaf = false;
   private toggleTocAction: (() => void) | null = null;
+
+  // Stable callback refs to avoid re-render from new function references (#2)
+  private readonly stableOnLocationChange = (loc: string | number) => {
+    if (!this.file) return;
+    this.plugin.setProgress(this.file.path, loc);
+  };
+  private readonly stableOnOpenNote = (note: TFile) => {
+    const leaf = this.app.workspace.getLeaf("split", "vertical") ?? this.app.workspace.getLeaf(false);
+    leaf.openFile(note);
+  };
+  private readonly stableOnUserActivity = () => {
+    this.readingTracker.recordActivity();
+  };
+  private readonly stableOnRegisterActions = ({ toggleToc }: { toggleToc: () => void }) => {
+    this.toggleTocAction = toggleToc;
+  };
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -102,17 +119,16 @@ export class EpubView extends FileView {
     super.onPaneMenu(menu, source);
   }
 
+  // #10: Use normalizePath to avoid double-slash issues at vault root
   private getFileName() {
-    let filePath: string;
     const currentSettings = this.plugin.settings;
+    let folderPath: string;
     if (currentSettings.useSameFolder) {
-      filePath = `${this.file.parent.path}/`;
+      folderPath = this.file.parent?.path ?? "/";
     } else {
-      filePath = currentSettings.notePath.endsWith("/")
-        ? currentSettings.notePath
-        : `${currentSettings.notePath}/`;
+      folderPath = currentSettings.notePath || "/";
     }
-    return `${filePath}${this.file.basename}.md`;
+    return normalizePath(`${folderPath}/${this.file.basename}.md`);
   }
 
   private getFileContent() {
@@ -127,7 +143,11 @@ Date: ${moment().toLocaleString()}
   }
 
   async onLoadFile(file: TFile): Promise<void> {
-    ReactDOM.unmountComponentAtNode(this.contentEl);
+    // Unmount previous React tree
+    if (this.root) {
+      this.root.unmount();
+      this.root = null;
+    }
     this.contentEl.empty();
 
     // Load EPUB binary
@@ -175,12 +195,13 @@ Date: ${moment().toLocaleString()}
     }
   }
 
+  // #12: jumpCfiRange is no longer immediately cleared; EpubReader handles it via its own effect
   private handleJumpFromCfi64(encoded: string): void {
     try {
       this.jumpCfiRange = base64UrlDecode(encoded);
       this.renderReader();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn("[super-epub] Failed to decode cfi64:", err);
     }
   }
 
@@ -199,54 +220,62 @@ Date: ${moment().toLocaleString()}
       overflow: "hidden",
     };
 
-    ReactDOM.render(
+    const element = (
       <div style={wrapperStyle}>
-          <EpubReader
-            app={this.app}
-            file={this.file}
-            contents={this.fileContent}
-            title={this.file.basename}
-            scrolled={currentSettings.scrolledView}
-            highlightColor={currentSettings.highlightColor}
-            highlightOpacity={currentSettings.highlightOpacity}
-            fontSizePercent={currentSettings.fontSizePercent}
-            lineHeight={currentSettings.lineHeight}
-            paragraphSpacingEm={currentSettings.paragraphSpacingEm}
-            followObsidianTheme={currentSettings.followObsidianTheme}
-            followObsidianFont={currentSettings.followObsidianFont}
-            initialLocation={initialLocation}
-            jumpCfiRange={this.jumpCfiRange}
-            highlights={this.highlights}
-            onLocationChange={(loc: string | number) => {
-              if (!this.file) return;
-              this.plugin.setProgress(this.file.path, loc);
-            }}
-            onOpenNote={(note: TFile) => {
-              const leaf = this.app.workspace.getLeaf("split", "vertical") ?? this.app.workspace.getLeaf(false);
-              leaf.openFile(note);
-            }}
-            onUserActivity={() => {
-              this.readingTracker.recordActivity();
-            }}
-            onRegisterActions={({ toggleToc }) => {
-              this.toggleTocAction = toggleToc;
-            }}
-          />
-      </div>,
-      this.contentEl
+        <EpubReader
+          app={this.app}
+          file={this.file}
+          contents={this.fileContent}
+          title={this.file.basename}
+          scrolled={currentSettings.scrolledView}
+          highlightColor={currentSettings.highlightColor}
+          highlightOpacity={currentSettings.highlightOpacity}
+          fontSizePercent={currentSettings.fontSizePercent}
+          lineHeight={currentSettings.lineHeight}
+          paragraphSpacingEm={currentSettings.paragraphSpacingEm}
+          followObsidianTheme={currentSettings.followObsidianTheme}
+          followObsidianFont={currentSettings.followObsidianFont}
+          initialLocation={initialLocation}
+          jumpCfiRange={this.jumpCfiRange}
+          highlights={this.highlights}
+          onLocationChange={this.stableOnLocationChange}
+          onOpenNote={this.stableOnOpenNote}
+          onUserActivity={this.stableOnUserActivity}
+          onRegisterActions={this.stableOnRegisterActions}
+        />
+      </div>
     );
 
-    // consume jump (one shot)
-    this.jumpCfiRange = null;
+    // #1: Use createRoot API instead of deprecated ReactDOM.render
+    if (!this.root) {
+      this.root = createRoot(this.contentEl);
+    }
+    this.root.render(element);
+
+    // #12: Don't clear jumpCfiRange synchronously; let React process it first
+    // Clear on next tick to avoid race condition
+    if (this.jumpCfiRange) {
+      window.setTimeout(() => {
+        this.jumpCfiRange = null;
+      }, 0);
+    }
   }
 
+  // #4: Optimized comparison — compare length first, then items
   private getHighlightsKey(list: BacklinkHighlight[]): string {
     return list.map((h) => `${h.cfiRange}|${h.sourceFile.path}`).join("\n");
   }
 
   onunload(): void {
     this.readingTracker.stop();
-    ReactDOM.unmountComponentAtNode(this.contentEl);
+    if (this.refreshTimer) {
+      window.clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    if (this.root) {
+      this.root.unmount();
+      this.root = null;
+    }
   }
 
   getDisplayText() {

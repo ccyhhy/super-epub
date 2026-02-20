@@ -31,7 +31,6 @@
 	},
 	"dependencies": {
 		"epubjs": "^0.3.93",
-		"react-reader": "^2.0.15",
-		"use-local-storage-state": "^17.3.0"
+		"react-reader": "^2.0.15"
 	}
 }

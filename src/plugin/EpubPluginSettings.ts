@@ -15,6 +15,18 @@ import {
 import type EpubPlugin from "./EpubPlugin";
 import { parseColorComponents } from "../shared/utils";
 
+/** Debounce helper for slider onChange to avoid excessive saves (#11) */
+function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
+  let timer: number | null = null;
+  return ((...args: any[]) => {
+    if (timer !== null) window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, ms);
+  }) as any;
+}
+
 export interface EpubPluginSettings {
   scrolledView: boolean;
   fontSizePercent: number;
@@ -66,6 +78,9 @@ export class EpubSettingTab extends PluginSettingTab {
     intro.createDiv({ cls: "epub-setting-intro__title", text: "使用提示" });
     addNote(intro, "epub-setting-intro__note", "这些设置会影响阅读器显示与高亮效果。");
 
+    // Debounced save for sliders (#11)
+    const debouncedSave = debounce(() => this.plugin.saveSettings(), 300);
+
     const readingSection = containerEl.createDiv({ cls: "epub-setting-section" });
     readingSection.createEl("h3", { text: "阅读体验", cls: "epub-setting-section__title" });
     addNote(readingSection, "epub-setting-section__note", "字体、滚动与主题相关设置。");
@@ -90,7 +105,7 @@ export class EpubSettingTab extends PluginSettingTab {
           .setDynamicTooltip()
           .onChange(async (value: number) => {
             this.plugin.settings.fontSizePercent = value;
-            await this.plugin.saveSettings();
+            debouncedSave();
           })
       );
 
@@ -105,7 +120,7 @@ export class EpubSettingTab extends PluginSettingTab {
           .onChange(async (value: number) => {
             const next = Number(value.toFixed(2));
             this.plugin.settings.lineHeight = next;
-            await this.plugin.saveSettings();
+            debouncedSave();
             lineHeightSetting.setDesc(`调节同一段中每一行之间的距离（当前 ${next.toFixed(2)}）。`);
           })
       );
@@ -121,7 +136,7 @@ export class EpubSettingTab extends PluginSettingTab {
           .onChange(async (value: number) => {
             const next = Number(value.toFixed(2));
             this.plugin.settings.paragraphSpacingEm = next;
-            await this.plugin.saveSettings();
+            debouncedSave();
             paragraphSpacingSetting.setDesc(`调节段落与段落之间的留白（当前 ${next.toFixed(2)}em）。`);
           })
       );
@@ -161,7 +176,12 @@ export class EpubSettingTab extends PluginSettingTab {
       const opacity = this.plugin.settings.highlightOpacity / 100;
       colorPreview.style.backgroundColor = color;
       const rgbaColor = colorToRgba(color, opacity);
-      previewBody.innerHTML = `这段<span class="epub-highlight-preview__mark" style="background-color: ${rgbaColor};">文字</span>展示了高亮颜色的效果`;
+      // #8: Use safe DOM API instead of innerHTML to prevent XSS
+      previewBody.empty();
+      previewBody.createSpan({ text: "这段" });
+      const mark = previewBody.createSpan({ cls: "epub-highlight-preview__mark", text: "文字" });
+      mark.style.backgroundColor = rgbaColor;
+      previewBody.createSpan({ text: "展示了高亮颜色的效果" });
     };
 
     updatePreview();

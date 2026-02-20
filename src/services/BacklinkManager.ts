@@ -7,8 +7,17 @@ export type BacklinkHighlight = {
   display: string;    // display label
 };
 
+/**
+ * Manages backlink discovery for EPUB books.
+ * #5: Added result caching — results are reused if the underlying metadata
+ * hasn't changed (measured by a cheap hash of candidate count + resolved links).
+ */
 export class BacklinkManager {
-  constructor(private readonly app: App) {}
+  private lastBookPath: string | null = null;
+  private lastCacheKey: string | null = null;
+  private cachedResults: BacklinkHighlight[] = [];
+
+  constructor(private readonly app: App) { }
 
   /**
    * MVP: only parse backlinks pointing to the current book.
@@ -48,6 +57,12 @@ export class BacklinkManager {
       }
     }
 
+    // #5: Build cache key from candidate paths + mtimes to detect changes
+    const cacheKey = this.buildCacheKey(bookPath, candidates);
+    if (this.lastBookPath === bookPath && this.lastCacheKey === cacheKey) {
+      return this.cachedResults;
+    }
+
     const seenEncoded = new Set<string>();
     const results: BacklinkHighlight[] = [];
 
@@ -75,13 +90,13 @@ export class BacklinkManager {
 
         const original = (item as any).original as string | undefined;
         const subpath = (item as any).subpath as string | undefined;
-        const candidates = [original, linkRaw, subpath].filter(Boolean) as string[];
-        const hasCfi = candidates.some((v) => v.indexOf("#cfi64=") !== -1);
+        const candidateStrings = [original, linkRaw, subpath].filter(Boolean) as string[];
+        const hasCfi = candidateStrings.some((v) => v.indexOf("#cfi64=") !== -1);
         if (!hasCfi) continue;
 
         const display = String((item as any).displayText ?? sourceFile.basename);
 
-        for (const raw of candidates) {
+        for (const raw of candidateStrings) {
           cfiRegex.lastIndex = 0;
           let m: RegExpExecArray | null;
           while ((m = cfiRegex.exec(raw)) !== null) {
@@ -93,15 +108,35 @@ export class BacklinkManager {
             try {
               const cfiRange = base64UrlDecode(encoded);
               results.push({ cfiRange, sourceFile, display });
-              if (results.length >= limit) return results;
-            } catch {
-              // ignore invalid payload
+              if (results.length >= limit) {
+                this.updateCache(bookPath, cacheKey, results);
+                return results;
+              }
+            } catch (err) {
+              console.debug("[super-epub] Invalid cfi64 payload:", err);
             }
           }
         }
       }
     }
 
+    this.updateCache(bookPath, cacheKey, results);
     return results;
+  }
+
+  /** Build a cheap hash key from candidate paths and their modification times */
+  private buildCacheKey(bookPath: string, candidates: TFile[]): string {
+    // Sort for determinism; include mtime for change detection
+    const parts = candidates
+      .map((f) => `${f.path}:${f.stat.mtime}`)
+      .sort()
+      .join("|");
+    return `${bookPath}::${candidates.length}::${parts}`;
+  }
+
+  private updateCache(bookPath: string, cacheKey: string, results: BacklinkHighlight[]): void {
+    this.lastBookPath = bookPath;
+    this.lastCacheKey = cacheKey;
+    this.cachedResults = results;
   }
 }
